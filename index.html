@@ -163,6 +163,9 @@ table.menu tr.past { opacity: .5; }
 .keep input { width: auto; accent-color: var(--accent); }
 .btn.big { font-size: 16px; padding: 10px 14px; }
 #aGuest { justify-self: center; }
+.okmsg { font-size: 13.5px; color: var(--ink); background: var(--bg); border-left: 3px solid var(--accent); padding: 8px 10px; border-radius: 4px; }
+#aForgot { justify-self: start; }
+.syncstate { font-size: 12.5px; }
 .auth-note { margin: 0; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; }
 .who { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
 .who b { color: var(--ink); }
@@ -278,10 +281,19 @@ ul.meals li span { color: var(--muted); font-size: 12px; text-transform: upperca
       <label class="f" id="pass2Row" hidden>Confirm password<input id="aPass2" type="password" autocomplete="new-password"></label>
       <label class="keep"><input type="checkbox" id="aKeep" checked> Keep me signed in on this device</label>
       <div class="ederr" id="aErr" role="alert" hidden></div>
+      <div class="okmsg" id="aMsg" role="status" hidden></div>
       <button type="submit" class="btn primary big" id="aGo">Sign in</button>
+      <button type="button" class="btn link" id="aForgot" hidden>Forgot your password?</button>
+    </form>
+    <form id="resetForm" class="auth-form" novalidate hidden>
+      <p class="auth-tag">Choose a new password for your account.</p>
+      <label class="f">New password<input id="rPass" type="password" autocomplete="new-password"></label>
+      <label class="f">Confirm new password<input id="rPass2" type="password" autocomplete="new-password"></label>
+      <div class="ederr" id="rErr" role="alert" hidden></div>
+      <button type="submit" class="btn primary big" id="rGo">Save new password</button>
     </form>
     <button type="button" class="btn link" id="aGuest">Continue without an account</button>
-    <p class="auth-note">Accounts and plans are saved in this browser on this device. They don't sync to other devices, and a forgotten password can't be reset.</p>
+    <p class="auth-note" id="authNote">Accounts and plans are saved in this browser on this device. They don't sync to other devices, and a forgotten password can't be reset.</p>
   </div>
 </div>
 
@@ -1408,6 +1420,11 @@ render();
 }
 
 // ---------- accounts ----------
+// Fill these in to switch on Supabase accounts (sign in from any device, password reset, plans saved online).
+// The anon key is meant to be public: row-level security in supabase/schema.sql keeps each person's data private.
+// Left empty, the app falls back to accounts stored in this browser only.
+const SUPABASE = { url: "", anonKey: "" };
+const CLOUD = !!(SUPABASE.url && SUPABASE.anonKey);
 // Accounts live in this browser only: a salted PBKDF2 hash of the password, never the password itself.
 const USERS = "startline.users", SESSION = "startline.session";
 const ls = {
@@ -1428,7 +1445,7 @@ function setAuthMode(m) {
   $("nameRow").hidden = m === "in"; $("pass2Row").hidden = m === "in";
   $("aPass").autocomplete = m === "in" ? "current-password" : "new-password";
   $("aGo").textContent = m === "in" ? "Sign in" : "Create account";
-  $("aErr").hidden = true;
+  $("aErr").hidden = true; if ($("aMsg")) $("aMsg").hidden = true;
 }
 function enterApp(user) {
   STORE = user ? `startline.u.${user.id}` : "startline.v1";
@@ -1440,6 +1457,7 @@ function enterApp(user) {
   boot();
 }
 function startAuth() {
+  if (CLOUD) return startCloudAuth();
   const sess = ls.get(SESSION) || ls.get(SESSION, sessionStorage);
   const users = ls.get(USERS) || {};
   if (sess && sess.guest) return enterApp(null);
@@ -1484,6 +1502,136 @@ function startAuth() {
       ls.set(SESSION, { email }, $("aKeep").checked ? localStorage : sessionStorage);
       $("aPass").value = ""; $("aPass2").value = "";
       enterApp(user);
+    } finally { $("aGo").disabled = false; }
+  });
+}
+// ---------- Supabase accounts ----------
+// Each person's saved app data (everything under their storage prefix) is mirrored to one row of
+// public.startline_data, pulled on sign-in and pushed a moment after each change.
+let sb = null, cloudUser = null, syncTimer = null;
+function loadScript(src) {
+  return new Promise((ok, fail) => { const el = document.createElement("script"); el.src = src; el.onload = ok; el.onerror = fail; document.head.appendChild(el); });
+}
+const authErr = m => { $("aMsg").hidden = true; $("aErr").textContent = m; $("aErr").hidden = false; };
+const authMsg = m => { $("aErr").hidden = true; $("aMsg").textContent = m; $("aMsg").hidden = false; };
+function friendly(e) {
+  const m = (e && e.message) || String(e);
+  if (/invalid login/i.test(m)) return "That email and password don't match an account.";
+  if (/already registered/i.test(m)) return "There's already an account with this email. Sign in instead.";
+  if (/email not confirmed/i.test(m)) return "Confirm your email first. Check your inbox for the link we sent.";
+  if (/rate limit|too many/i.test(m)) return "Too many tries. Wait a minute and try again.";
+  if (/fetch|network/i.test(m)) return "Can't reach the account service. Check your connection and try again.";
+  return m;
+}
+const redirectUrl = () => location.origin + location.pathname;
+function collectData() {
+  const out = {};
+  try { Object.keys(localStorage).filter(k => k === STORE || k.startsWith(STORE + ".")).forEach(k => out[k.slice(STORE.length)] = localStorage.getItem(k)); } catch (e) {}
+  return out;
+}
+function setSync(text) { const el = $("syncState"); if (el) el.textContent = text; }
+async function pushNow() {
+  clearTimeout(syncTimer); syncTimer = null;
+  if (!cloudUser) return;
+  setSync("Saving…");
+  const { error } = await sb.from("startline_data").upsert({ user_id: cloudUser.id, data: collectData(), updated_at: new Date().toISOString() });
+  setSync(error ? "Not saved online. Retrying when you make the next change." : "Saved online");
+}
+function syncSoon() { clearTimeout(syncTimer); syncTimer = setTimeout(pushNow, 1500); }
+function watchStorage() {
+  const set = Storage.prototype.setItem, del = Storage.prototype.removeItem;
+  const mine = (st, k) => cloudUser && st === localStorage && (k === STORE || String(k).startsWith(STORE + "."));
+  Storage.prototype.setItem = function (k, v) { set.call(this, k, v); if (mine(this, k)) syncSoon(); };
+  Storage.prototype.removeItem = function (k) { del.call(this, k); if (mine(this, k)) syncSoon(); };
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && syncTimer) pushNow(); });
+}
+async function cloudEnter(user) {
+  cloudUser = null;
+  STORE = `startline.c.${user.id}`;
+  const { data: row, error } = await sb.from("startline_data").select("data").eq("user_id", user.id).maybeSingle();
+  if (error) { $("auth").hidden = false; return authErr("Signed in, but your saved plans couldn't load: " + friendly(error)); }
+  try {
+    if (row && row.data) Object.entries(row.data).forEach(([k, v]) => localStorage.setItem(STORE + k, v));
+    else if (!collectData()[""]) {
+      // first sign-in: bring along whatever this browser saved before
+      const src = Object.keys(localStorage).find(k => k === "startline.v1") ? "startline.v1" : null;
+      if (src) Object.keys(localStorage).filter(k => k === src || k.startsWith(src + ".")).forEach(k => localStorage.setItem(STORE + k.slice(src.length), localStorage.getItem(k)));
+    }
+  } catch (e) {}
+  cloudUser = user;
+  const name = (user.user_metadata && user.user_metadata.name) || user.email;
+  $("who").innerHTML = `<span>Signed in as <b>${esc(name)}</b></span><span class="syncstate hint" id="syncState">Saved online</span><button type="button" class="btn small" id="signOut">Sign out</button>`;
+  $("signOut").onclick = async () => { if (syncTimer) await pushNow(); await sb.auth.signOut(); location.reload(); };
+  $("auth").hidden = true; $("app").hidden = false;
+  boot();
+  if (!row) pushNow();
+}
+async function startCloudAuth() {
+  $("aKeep").closest("label").hidden = true;
+  $("aForgot").hidden = false;
+  $("authNote").textContent = "Your account works on any device. Your races and plans are saved online and only you can see them.";
+  try { await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"); }
+  catch (e) { $("auth").hidden = false; return authErr("Can't reach the account service right now. You can continue without an account."); }
+  sb = window.supabase.createClient(SUPABASE.url, SUPABASE.anonKey);
+  watchStorage();
+  $("aIn").onclick = () => setAuthMode("in");
+  $("aUp").onclick = () => setAuthMode("up");
+  $("aGuest").onclick = () => { sb.auth.signOut(); STORE = "startline.v1"; enterApp(null); };
+  let recovering = false;
+  sb.auth.onAuthStateChange((event) => {
+    if (event === "PASSWORD_RECOVERY") {
+      recovering = true;
+      $("auth").hidden = false; $("app").hidden = true;
+      $("authForm").hidden = true; $("resetForm").hidden = false;
+      document.querySelector(".auth-tabs").hidden = true; $("aGuest").hidden = true;
+    }
+  });
+  const { data: { session } } = await sb.auth.getSession();
+  if (session && !recovering && !/type=recovery/.test(location.hash)) return cloudEnter(session.user);
+  $("auth").hidden = false; $("app").hidden = true;
+  if (!recovering) setAuthMode("in");
+
+  $("aForgot").onclick = async () => {
+    const email = $("aEmail").value.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return authErr("Enter your email above, then tap Forgot your password.");
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl() });
+    if (error) return authErr(friendly(error));
+    authMsg("If there's an account for that email, a reset link is on its way. Open it on this device.");
+  };
+  $("resetForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const pw = $("rPass").value, err = m => { $("rErr").textContent = m; $("rErr").hidden = false; };
+    if (pw.length < 8) return err("Use a password of at least 8 characters.");
+    if (pw !== $("rPass2").value) return err("The two passwords don't match.");
+    $("rGo").disabled = true;
+    const { data, error } = await sb.auth.updateUser({ password: pw });
+    $("rGo").disabled = false;
+    if (error) return err(friendly(error));
+    history.replaceState(null, "", location.pathname);
+    $("resetForm").hidden = true; $("authForm").hidden = false; document.querySelector(".auth-tabs").hidden = false;
+    cloudEnter(data.user);
+  });
+  $("authForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const email = $("aEmail").value.trim().toLowerCase(), pw = $("aPass").value;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return authErr("Enter a valid email address.");
+    $("aGo").disabled = true;
+    try {
+      if (authMode === "up") {
+        const name = $("aName").value.trim();
+        if (!name) return authErr("Enter your name.");
+        if (pw.length < 8) return authErr("Use a password of at least 8 characters.");
+        if (pw !== $("aPass2").value) return authErr("The two passwords don't match.");
+        const { data, error } = await sb.auth.signUp({ email, password: pw, options: { data: { name }, emailRedirectTo: redirectUrl() } });
+        if (error) return authErr(friendly(error));
+        if (!data.session) { setAuthMode("in"); $("aEmail").value = email; return authMsg("Check your email and tap the confirmation link, then sign in here."); }
+        await cloudEnter(data.user);
+      } else {
+        const { data, error } = await sb.auth.signInWithPassword({ email, password: pw });
+        if (error) return authErr(friendly(error));
+        await cloudEnter(data.user);
+      }
+      $("aPass").value = ""; $("aPass2").value = "";
     } finally { $("aGo").disabled = false; }
   });
 }
