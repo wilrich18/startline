@@ -683,8 +683,9 @@ function applyAllergies(tot, I) {
   Object.keys(tot).filter(g => bad.has(g)).forEach(g => {
     const q = out[g]; delete out[g];
     const to = (ALLERGY_SUBS[g] || []).find(b => safe(b) && swapQty(g, b, q) != null);
-    if (to) out[to] = (out[to] || 0) + swapQty(g, to, q);
-    changes.push({ from: g, to: to || null });
+    const add = to ? swapQty(g, to, q) : 0;
+    if (to) out[to] = (out[to] || 0) + add;
+    changes.push({ from: g, to: to || null, q, add });
   });
   return { tot: out, changes, terms };
 }
@@ -1132,7 +1133,7 @@ function fitBudget(tot0, budget) {
       if (!(a in tot) || !(b in tot) || swaps.some(x => x.from === a)) return;
       const add = swapQty(a, b, tot[a]); if (add == null) return;
       const save = itemCost(a, tot[a]) + itemCost(b, tot[b]) - itemCost(b, tot[b] + add);
-      if (save > .5 && (!best || save > best.save)) best = { from: a, to: b, add, save };
+      if (save > .5 && (!best || save > best.save)) best = { from: a, to: b, q: tot[a], add, save };
     });
     if (!best) break;
     tot[best.to] += best.add; delete tot[best.from]; swaps.push(best); cost = listCost(tot);
@@ -1176,24 +1177,44 @@ function shopList(plan) {
   return { w, span, last, al, fit, useBudget, map, tot: { ...fit.tot } };
 }
 // apply the list's swaps to one meal's ingredients so portions match what was bought
-function swapItems(items, map) {
+// "750 g firm tofu", "15 eggs", "4 slices wholegrain bread"
+const qtyName = (g, q) => `${fmtPortion(g, q)} ${shortName(g)}`;
+const reEsc = t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// put the stand-in into a meal's name, or take a left-off food out of it; null when the name doesn't mention it
+function renameMeal(name, from, to) {
+  const sn = shortName(from), first = sn.split(" ")[0], lastW = sn.split(" ").pop();
+  const tail = ["bread","milk","seeds","breast","butter","fillets","mix","juice","paste","leaves"].includes(lastW) ? [] : [lastW, lastW.replace(/(es|s)$/, "")];
+  const words = [...new Set([sn, sn.replace(/s$/, ""), first, first.replace(/(es|s)$/, ""), ...tail])].filter(w => w.length > 2);
+  if (from === "eggs" && to) for (const re of [/a soft-boiled egg/i, /two boiled eggs/i, /scrambled eggs/i]) if (re.test(name)) return name.replace(re, re.source.startsWith("scrambled") ? `scrambled ${shortName(to)}` : shortName(to));
+  for (const w of words) {
+    if (to) { const re = new RegExp(`\\b${reEsc(w)}\\w*`, "i"); if (re.test(name)) return name.replace(re, m => /^[A-Z]/.test(m) ? shortName(to)[0].toUpperCase() + shortName(to).slice(1) : shortName(to)); }
+    else { const re = new RegExp(`(,\\s*| and | with )(an? |a piece of |a glass of )?${reEsc(w)}\\w*`, "i"); if (re.test(name)) return name.replace(re, (m, sep) => sep.trim() === "with" ? " with" : "").replace(/ with(,\s*| and )/, " with ").replace(/ with$/, ""); }
+  }
+  return null;
+}
+// apply the list's swaps to one meal: new ingredients and amounts, and a name that says what you'll actually eat
+function swapItems(items, map, name = "") {
   const out = [], notes = [];
   items.forEach(([g, q]) => {
     let to = g, amt = q, seen = 0;
     while (to in map && seen++ < 4) { const nx = map[to]; if (nx === null) { to = null; break; } amt = swapQty(to, nx, amt) ?? amt; to = nx; }
-    if (to !== g) notes.push(to ? `${shortName(to)} for ${shortName(g)}` : `no ${shortName(g)}`);
+    if (to !== g) { const nn = renameMeal(name, g, to); if (nn) name = (nn[0].toUpperCase() + nn.slice(1)).replace(/bread toast/i, "toast"); else notes.push(to ? `${shortName(to)} instead of ${shortName(g)}` : `no ${shortName(g)}`); }
     if (to) out.push([to, amt, to !== g]);
   });
-  return { items: out, notes };
+  return { items: out, notes, name };
 }
 function groceryHTML(plan) {
   const { w, span, last, al, fit, useBudget, tot } = shopList(plan);
   const swappedIn = new Set(fit.swaps.map(x => x.to)), allergyIn = new Set(al.changes.filter(x => x.to).map(x => x.to));
-  const allergyNote = al.terms.length ? `<div class="budgetnote">${al.changes.length ? `Swapped for your allergies:<ul>${al.changes.map(x => `<li>${esc(ING[x.from][0])} → ${x.to ? esc(ING[x.to][0]) : "<i>left off, no simple swap</i>"}</li>`).join("")}</ul>` : "Nothing on this list matches your allergies."}</div>` : "";
+  // for each stand-in on the list: how much of it replaces what
+  const repl = {};
+  [...al.changes.filter(x => x.to), ...fit.swaps].forEach(x => (repl[x.to] = repl[x.to] || []).push(x));
+  const swapLine = x => `buy <b>${esc(qtyName(x.to, x.add))}</b> instead of ${esc(qtyName(x.from, x.q))}`;
+  const allergyNote = al.terms.length ? `<div class="budgetnote">${al.changes.length ? `Swapped for your allergies:<ul>${al.changes.map(x => `<li>${x.to ? swapLine(x) : `${esc(ING[x.from][0])}: <i>left off, no simple swap</i>`}</li>`).join("")}</ul>` : "Nothing on this list matches your allergies."}</div>` : "";
   const budgetNote = !shopBudget ? `<div class="budgetnote">Estimated cost: about <b>${money(fit.full)}</b>. Add a budget and the list will make cheaper swaps to fit it.</div>`
     : fit.cost <= shopBudget && !fit.swaps.length && !fit.skipped.length ? `<div class="budgetnote">Estimated cost: about <b>${money(fit.full)}</b>, which fits your ${money(shopBudget)} budget.</div>`
     : `<div class="budgetnote${fit.cost > shopBudget ? " over" : ""}">${fit.cost <= shopBudget ? `To fit your <b>${money(shopBudget)}</b> budget, the list now comes to about <b>${money(fit.cost)}</b> (down from ${money(fit.full)}).` : `This is as low as the list goes: about <b>${money(fit.cost)}</b>, still ${money(fit.cost - shopBudget)} over your ${money(shopBudget)} budget. Skipping <span class="keeps">keeps</span> items you already have at home will help, or try fewer weeks.`}
-      <ul>${fit.swaps.map(x => `<li>${esc(ING[x.from][0])} → ${esc(ING[x.to][0])} <small>(saves about ${money(x.save)})</small></li>`).join("")}${fit.skipped.map(x => `<li>Skip ${esc(ING[x.g][0].toLowerCase())} <small>(saves about ${money(x.save)})</small></li>`).join("")}</ul></div>`;
+      <ul>${fit.swaps.map(x => `<li>${swapLine(x)} <small>(saves about ${money(x.save)})</small></li>`).join("")}${fit.skipped.map(x => `<li>Skip ${esc(ING[x.g][0].toLowerCase())} <small>(saves about ${money(x.save)})</small></li>`).join("")}</ul></div>`;
   const checks = getChecks(shopKey(plan, w));
   const byAisle = AISLES.map(a => [a, Object.keys(tot).filter(g => ING[g][1] === a).sort((x, y) => ING[x][0].localeCompare(ING[y][0]))]).filter(([, l]) => l.length);
   const n = Object.keys(tot).length, done = Object.keys(tot).filter(g => checks[g]).length;
@@ -1220,7 +1241,7 @@ function groceryHTML(plan) {
     ${span.length < shopSpan ? `<p class="hint">Your plan ends with race week, so this list covers ${span.length} ${span.length === 1 ? "week" : "weeks"}.</p>` : ""}
     ${span.length > 1 ? `<p class="hint">Items without the <span class="keeps">keeps</span> tag are fresh. For a ${span.length}-week shop, freeze meat, fish and bread you won't use in the first few days, and plan a quick top-up for milk, salad and soft fruit.</p>` : ""}
     <div class="shopstat"><b>${done}</b> of <b>${n}</b> items in the basket<span id="copyMsg" class="hint" aria-live="polite"></span></div>
-    <div class="aisles">${byAisle.map(([a, list]) => `<section class="card aisle"><h3>${a}</h3><ul class="glist">${list.map(g => { const b = basketLine(g, tot[g]); return `<li><label><input type="checkbox" data-g="${g}"${checks[g] ? " checked" : ""}><span class="gitem"><span class="gname">${esc(ING[g][0])}</span>${swappedIn.has(g) ? ` <span class="keeps swap">swap</span>` : ""}${allergyIn.has(g) ? ` <span class="keeps swap">allergy swap</span>` : ""}${b.keeps ? ` <span class="keeps">keeps</span>` : ""}<span class="gqty">${b.buy}${b.uses ? ` <small>· ${b.uses}</small>` : ""}</span></span></label></li>`; }).join("")}</ul></section>`).join("")}</div>
+    <div class="aisles">${byAisle.map(([a, list]) => `<section class="card aisle"><h3>${a}</h3><ul class="glist">${list.map(g => { const b = basketLine(g, tot[g]); return `<li><label><input type="checkbox" data-g="${g}"${checks[g] ? " checked" : ""}><span class="gitem"><span class="gname">${esc(ING[g][0])}</span>${swappedIn.has(g) ? ` <span class="keeps swap">swap</span>` : ""}${allergyIn.has(g) ? ` <span class="keeps swap">allergy swap</span>` : ""}${b.keeps ? ` <span class="keeps">keeps</span>` : ""}<span class="gqty">${b.buy}${b.uses ? ` <small>· ${b.uses}</small>` : ""}${repl[g] ? `<small class="swapnote"> · includes ${repl[g].map(x => `${esc(fmtPortion(g, x.add))} in place of ${esc(qtyName(x.from, x.q))}`).join(", ")}</small>` : ""}</span></span></label></li>`; }).join("")}</ul></section>`).join("")}</div>
     <p class="hint">Also keep salt, pepper, spices and garlic on hand. Allergy matching is a best guess from item names, so always check labels.</p>
   </div>`;
 }
@@ -1236,7 +1257,7 @@ function mealsWeekHTML(plan) {
       <div class="shopbar one">${weekSelect(plan, "mealWeek")}</div>
       <div class="mdays">${menu.map(m => `<div class="mday${m.d.past ? " past" : ""}">
         <div class="dname">${DN[m.d.dow]}<small>${fmtDate(m.d.date)}</small><span class="mtag">${m.d.fuel.isRace ? "Race day" : m.d.fuel.label}</span></div>
-        <ul class="meals">${m.meals.map(x => { const sw = swapItems(x.items, map); const por = sw.items.filter(([g, , s]) => s || keyFood(g)).map(([g, q]) => `${shortName(g)} ${fmtPortion(g, q)}`).join(", "); return `<li><span>${x.label}</span>${esc(x.name)}${sw.notes.length ? ` <small class="swapnote">(${esc(sw.notes.join(", "))})</small>` : ""}${por ? `<em>${por}</em>` : ""}</li>`; }).join("")}
+        <ul class="meals">${m.meals.map(x => { const sw = swapItems(x.items, map, x.name); const por = sw.items.filter(([g, , s]) => s || keyFood(g)).map(([g, q, s]) => `${s ? "<b>" : ""}${shortName(g)} ${fmtPortion(g, q)}${s ? "</b>" : ""}`).join(", "); return `<li><span>${x.label}</span>${esc(sw.name)}${sw.notes.length ? ` <small class="swapnote">(${esc(sw.notes.join(", "))})</small>` : ""}${por ? `<em>${por}</em>` : ""}</li>`; }).join("")}
         ${m.extra.length ? `<li><span>Training fuel</span>${m.extra.map(([g, q]) => `${q} × ${g === "gel" ? "gel" : "sports drink"}`).join(", ")}</li>` : ""}</ul>
       </div>`).join("")}</div>
     </section>`;
