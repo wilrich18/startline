@@ -56,7 +56,7 @@ body { background: var(--bg); color: var(--ink); font-family: var(--f-body); fon
 header.top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; padding-bottom: 16px; border-bottom: 2px solid var(--ink); margin-bottom: 20px; }
 .brand { font-family: var(--f-display); font-weight: 700; font-size: 34px; letter-spacing: .02em; text-transform: uppercase; line-height: 1; }
 .brand span { color: var(--accent); }
-.tag { color: var(--muted); max-width: 52ch; }
+.tag { color: var(--muted); max-width: 52ch; flex-basis: 100%; order: 3; }
 .grid { display: grid; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); gap: 24px; align-items: start; }
 @media (max-width: 880px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 
@@ -150,6 +150,25 @@ table.menu tr.past { opacity: .5; }
 .glist .gqty { display: block; text-align: left; white-space: normal; color: var(--ink); font-size: 12.5px; margin-top: 1px; }
 .glist .gqty small { font-family: var(--f-body); color: var(--muted); font-size: 12px; }
 .glist input:checked ~ .gitem .gname { text-decoration: line-through; color: var(--muted); }
+
+.auth { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding-inline: 16px; padding-block: 32px; }
+.auth-card { position: relative; width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 34px 26px 22px; overflow: hidden; display: grid; gap: 14px; box-shadow: 0 10px 30px -18px rgba(0,0,0,.4); }
+.auth-card .brand { font-size: 40px; }
+.auth-tag { margin: 0; color: var(--muted); }
+.auth-tabs { display: flex; border-bottom: 2px solid var(--line); }
+.auth-tabs button { flex: 1; font-family: var(--f-display); font-size: 17px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; background: none; border: 0; color: var(--muted); padding: 8px 4px; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+.auth-tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--accent); }
+.auth-form { display: grid; gap: 12px; }
+.keep { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--muted); }
+.keep input { width: auto; accent-color: var(--accent); }
+.btn.big { font-size: 16px; padding: 10px 14px; }
+#aGuest { justify-self: center; }
+.okmsg { font-size: 13.5px; color: var(--ink); background: var(--bg); border-left: 3px solid var(--accent); padding: 8px 10px; border-radius: 4px; }
+#aForgot { justify-self: start; }
+.syncstate { font-size: 12.5px; }
+.auth-note { margin: 0; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; }
+.who { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+.who b { color: var(--ink); }
 
 /* Results */
 main.out { display: grid; gap: 20px; min-width: 0; }
@@ -246,9 +265,42 @@ ul.meals li span { color: var(--muted); font-size: 12px; text-transform: upperca
 </head>
 <body>
 
-<div class="wrap">
+<div class="auth" id="auth" hidden>
+  <div class="auth-card">
+    <div class="bib-band"></div>
+    <div class="brand">Start<span>/</span>Line</div>
+    <p class="auth-tag">Your race, your training plan, your fuel. Sign in to pick up where you left off.</p>
+    <div class="auth-tabs" role="tablist">
+      <button type="button" role="tab" id="aIn" aria-selected="true">Sign in</button>
+      <button type="button" role="tab" id="aUp" aria-selected="false">Create account</button>
+    </div>
+    <form id="authForm" class="auth-form" novalidate>
+      <label class="f" id="nameRow" hidden>Your name<input id="aName" type="text" autocomplete="name" maxlength="40"></label>
+      <label class="f">Email<input id="aEmail" type="email" autocomplete="email" required></label>
+      <label class="f">Password<input id="aPass" type="password" autocomplete="current-password" required></label>
+      <label class="f" id="pass2Row" hidden>Confirm password<input id="aPass2" type="password" autocomplete="new-password"></label>
+      <label class="keep"><input type="checkbox" id="aKeep" checked> Keep me signed in on this device</label>
+      <div class="ederr" id="aErr" role="alert" hidden></div>
+      <div class="okmsg" id="aMsg" role="status" hidden></div>
+      <button type="submit" class="btn primary big" id="aGo">Sign in</button>
+      <button type="button" class="btn link" id="aForgot" hidden>Forgot your password?</button>
+    </form>
+    <form id="resetForm" class="auth-form" novalidate hidden>
+      <p class="auth-tag">Choose a new password for your account.</p>
+      <label class="f">New password<input id="rPass" type="password" autocomplete="new-password"></label>
+      <label class="f">Confirm new password<input id="rPass2" type="password" autocomplete="new-password"></label>
+      <div class="ederr" id="rErr" role="alert" hidden></div>
+      <button type="submit" class="btn primary big" id="rGo">Save new password</button>
+    </form>
+    <button type="button" class="btn link" id="aGuest">Continue without an account</button>
+    <p class="auth-note" id="authNote">Accounts and plans are saved in this browser on this device. They don't sync to other devices, and a forgotten password can't be reset.</p>
+  </div>
+</div>
+
+<div class="wrap" id="app" hidden>
   <header class="top">
     <div class="brand">Start<span>/</span>Line</div>
+    <div class="who" id="who"></div>
     <div class="tag">Tell it about you and your race. It builds a week-by-week training and fueling plan that peaks on race day. <a class="jump" href="#out">Jump to your plan</a></div>
   </header>
 
@@ -550,7 +602,7 @@ const num = (id, def) => { const v = parseFloat($(id).value); return Number.isFi
 
 // ---------- state ----------
 let units = "metric";
-const STORE = "startline.v1";
+let STORE = "startline.v1"; // per-account prefix once signed in; guests keep the original key
 let races = [], activeRace = null, customTypes = [];
 let editing = null;      // race id being edited, or "new"
 let editingType = null;  // custom type id being edited, or "new"
@@ -942,7 +994,6 @@ function basketLine(g, q) {
   return { buy, uses: left > size * .25 ? `you'll use about ${fmtPortion(g, q)}` : "", keeps: !!pk[4] };
 }
 let shopWeek = null, shopPeople = 1;
-try { shopPeople = +localStorage.getItem(STORE + ".people") || 1; } catch (e) {}
 function shopKey(plan, w) { return `${STORE}.shop.${plan.I.entry.id}.${w.n}`; }
 function getChecks(key) { try { return JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) { return {}; } }
 function selWeek(plan) {
@@ -1033,7 +1084,6 @@ function refreshShop(plan) { $("pShop").innerHTML = groceryHTML(plan); wireGroce
 // ---------- render ----------
 const sportLabel = { run:"Run", bike:"Bike", swim:"Swim", gym:"Gym", tri:"Tri", rest:"Off" };
 let tab = "train";
-try { tab = localStorage.getItem(STORE + ".tab") || "train"; } catch (e) {}
 
 function render() {
   const I = readInputs();
@@ -1351,6 +1401,9 @@ $("tyDelete").onclick = () => {
   save(); renderRaces();
 };
 
+function boot() {
+try { shopPeople = +localStorage.getItem(STORE + ".people") || 1; } catch (e) {}
+try { tab = localStorage.getItem(STORE + ".tab") || "train"; } catch (e) {}
 const loaded = load();
 if (loaded) $("exampleNote").hidden = true;
 if (!loaded) { races = [{ id: uid("r"), name: "Spring Half", type: "half", date: defaultDate(), goal: "" }]; activeRace = races[0].id; }
@@ -1364,6 +1417,225 @@ $("f").addEventListener("change", e => { if (planField(e)) { save(); render(); }
 $("f").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.closest("#raceEditor") && e.target.tagName === "INPUT") { e.preventDefault(); (e.target.closest("#typeEditor") ? $("tySave") : $("edSave")).click(); } });
 $("f").addEventListener("submit", e => e.preventDefault());
 render();
+}
+
+// ---------- accounts ----------
+// Fill these in to switch on Supabase accounts (sign in from any device, password reset, plans saved online).
+// The anon key is meant to be public: row-level security in supabase/schema.sql keeps each person's data private.
+// Left empty, the app falls back to accounts stored in this browser only.
+const SUPABASE = { url: "", anonKey: "" };
+const CLOUD = !!(SUPABASE.url && SUPABASE.anonKey);
+// Accounts live in this browser only: a salted PBKDF2 hash of the password, never the password itself.
+const USERS = "startline.users", SESSION = "startline.session";
+const ls = {
+  get(k, store = localStorage) { try { return JSON.parse(store.getItem(k) || "null"); } catch (e) { return null; } },
+  set(k, v, store = localStorage) { try { store.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+  del(k) { try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch (e) {} },
+};
+const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+async function hashPw(pw, saltHex) {
+  const salt = new Uint8Array(saltHex.match(/../g).map(h => parseInt(h, 16)));
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveBits"]);
+  return hex(await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 150000, hash: "SHA-256" }, key, 256));
+}
+let authMode = "in";
+function setAuthMode(m) {
+  authMode = m;
+  $("aIn").setAttribute("aria-selected", m === "in"); $("aUp").setAttribute("aria-selected", m === "up");
+  $("nameRow").hidden = m === "in"; $("pass2Row").hidden = m === "in";
+  $("aPass").autocomplete = m === "in" ? "current-password" : "new-password";
+  $("aGo").textContent = m === "in" ? "Sign in" : "Create account";
+  $("aErr").hidden = true; if ($("aMsg")) $("aMsg").hidden = true;
+}
+function enterApp(user) {
+  STORE = user ? `startline.u.${user.id}` : "startline.v1";
+  $("who").innerHTML = user
+    ? `<span>Signed in as <b>${esc(user.name)}</b></span><button type="button" class="btn small" id="signOut">Sign out</button>`
+    : `<span>Using Start/Line as a guest</span><button type="button" class="btn small" id="signOut">Sign in</button>`;
+  $("signOut").onclick = () => { ls.del(SESSION); location.reload(); };
+  $("auth").hidden = true; $("app").hidden = false;
+  boot();
+}
+function startAuth() {
+  if (CLOUD) return startCloudAuth();
+  const sess = ls.get(SESSION) || ls.get(SESSION, sessionStorage);
+  const users = ls.get(USERS) || {};
+  if (sess && sess.guest) return enterApp(null);
+  if (sess && sess.email && users[sess.email]) return enterApp(users[sess.email]);
+  $("auth").hidden = false; $("app").hidden = true;
+  setAuthMode(Object.keys(users).length ? "in" : "up");
+  $("aIn").onclick = () => setAuthMode("in");
+  $("aUp").onclick = () => setAuthMode("up");
+  $("aGuest").onclick = () => { ls.set(SESSION, { guest: true }, sessionStorage); enterApp(null); };
+  $("authForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const err = m => { $("aErr").textContent = m; $("aErr").hidden = false; };
+    const email = $("aEmail").value.trim().toLowerCase(), pw = $("aPass").value;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err("Enter a valid email address.");
+    if (!window.crypto || !crypto.subtle) return err("This browser can't create secure sign-ins. Continue without an account instead.");
+    const users = ls.get(USERS) || {};
+    $("aGo").disabled = true;
+    try {
+      let user;
+      if (authMode === "up") {
+        const name = $("aName").value.trim();
+        if (!name) return err("Enter your name.");
+        if (pw.length < 8) return err("Use a password of at least 8 characters.");
+        if (pw !== $("aPass2").value) return err("The two passwords don't match.");
+        if (users[email]) return err("There's already an account with this email on this device. Sign in instead.");
+        const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
+        user = { id: uid("u"), name, email, salt, hash: await hashPw(pw, salt), created: iso(today0()) };
+        // the first account inherits anything saved before accounts existed
+        if (!Object.keys(users).length) {
+          try {
+            Object.keys(localStorage).filter(k => k === "startline.v1" || k.startsWith("startline.v1.")).forEach(k =>
+              localStorage.setItem(`startline.u.${user.id}` + k.slice("startline.v1".length), localStorage.getItem(k)));
+          } catch (er) {}
+        }
+        users[email] = user;
+        if (!ls.set(USERS, users)) return err("This browser isn't letting the page save data, so accounts can't be created. Continue without an account instead.");
+      } else {
+        user = users[email];
+        if (!user || await hashPw(pw, user.salt) !== user.hash) return err("That email and password don't match an account on this device.");
+      }
+      ls.del(SESSION);
+      ls.set(SESSION, { email }, $("aKeep").checked ? localStorage : sessionStorage);
+      $("aPass").value = ""; $("aPass2").value = "";
+      enterApp(user);
+    } finally { $("aGo").disabled = false; }
+  });
+}
+// ---------- Supabase accounts ----------
+// Each person's saved app data (everything under their storage prefix) is mirrored to one row of
+// public.startline_data, pulled on sign-in and pushed a moment after each change.
+let sb = null, cloudUser = null, syncTimer = null;
+function loadScript(src) {
+  return new Promise((ok, fail) => { const el = document.createElement("script"); el.src = src; el.onload = ok; el.onerror = fail; document.head.appendChild(el); });
+}
+const authErr = m => { $("aMsg").hidden = true; $("aErr").textContent = m; $("aErr").hidden = false; };
+const authMsg = m => { $("aErr").hidden = true; $("aMsg").textContent = m; $("aMsg").hidden = false; };
+function friendly(e) {
+  const m = (e && e.message) || String(e);
+  if (/invalid login/i.test(m)) return "That email and password don't match an account.";
+  if (/already registered/i.test(m)) return "There's already an account with this email. Sign in instead.";
+  if (/email not confirmed/i.test(m)) return "Confirm your email first. Check your inbox for the link we sent.";
+  if (/rate limit|too many/i.test(m)) return "Too many tries. Wait a minute and try again.";
+  if (/fetch|network/i.test(m)) return "Can't reach the account service. Check your connection and try again.";
+  return m;
+}
+const redirectUrl = () => location.origin + location.pathname;
+function collectData() {
+  const out = {};
+  try { Object.keys(localStorage).filter(k => k === STORE || k.startsWith(STORE + ".")).forEach(k => out[k.slice(STORE.length)] = localStorage.getItem(k)); } catch (e) {}
+  return out;
+}
+function setSync(text) { const el = $("syncState"); if (el) el.textContent = text; }
+async function pushNow() {
+  clearTimeout(syncTimer); syncTimer = null;
+  if (!cloudUser) return;
+  setSync("Saving…");
+  const { error } = await sb.from("startline_data").upsert({ user_id: cloudUser.id, data: collectData(), updated_at: new Date().toISOString() });
+  setSync(error ? "Not saved online. Retrying when you make the next change." : "Saved online");
+}
+function syncSoon() { clearTimeout(syncTimer); syncTimer = setTimeout(pushNow, 1500); }
+function watchStorage() {
+  const set = Storage.prototype.setItem, del = Storage.prototype.removeItem;
+  const mine = (st, k) => cloudUser && st === localStorage && (k === STORE || String(k).startsWith(STORE + "."));
+  Storage.prototype.setItem = function (k, v) { set.call(this, k, v); if (mine(this, k)) syncSoon(); };
+  Storage.prototype.removeItem = function (k) { del.call(this, k); if (mine(this, k)) syncSoon(); };
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && syncTimer) pushNow(); });
+}
+async function cloudEnter(user) {
+  cloudUser = null;
+  STORE = `startline.c.${user.id}`;
+  const { data: row, error } = await sb.from("startline_data").select("data").eq("user_id", user.id).maybeSingle();
+  if (error) { $("auth").hidden = false; return authErr("Signed in, but your saved plans couldn't load: " + friendly(error)); }
+  try {
+    if (row && row.data) Object.entries(row.data).forEach(([k, v]) => localStorage.setItem(STORE + k, v));
+    else if (!collectData()[""]) {
+      // first sign-in: bring along whatever this browser saved before
+      const src = Object.keys(localStorage).find(k => k === "startline.v1") ? "startline.v1" : null;
+      if (src) Object.keys(localStorage).filter(k => k === src || k.startsWith(src + ".")).forEach(k => localStorage.setItem(STORE + k.slice(src.length), localStorage.getItem(k)));
+    }
+  } catch (e) {}
+  cloudUser = user;
+  const name = (user.user_metadata && user.user_metadata.name) || user.email;
+  $("who").innerHTML = `<span>Signed in as <b>${esc(name)}</b></span><span class="syncstate hint" id="syncState">Saved online</span><button type="button" class="btn small" id="signOut">Sign out</button>`;
+  $("signOut").onclick = async () => { if (syncTimer) await pushNow(); await sb.auth.signOut(); location.reload(); };
+  $("auth").hidden = true; $("app").hidden = false;
+  boot();
+  if (!row) pushNow();
+}
+async function startCloudAuth() {
+  $("aKeep").closest("label").hidden = true;
+  $("aForgot").hidden = false;
+  $("authNote").textContent = "Your account works on any device. Your races and plans are saved online and only you can see them.";
+  try { await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"); }
+  catch (e) { $("auth").hidden = false; return authErr("Can't reach the account service right now. You can continue without an account."); }
+  sb = window.supabase.createClient(SUPABASE.url, SUPABASE.anonKey);
+  watchStorage();
+  $("aIn").onclick = () => setAuthMode("in");
+  $("aUp").onclick = () => setAuthMode("up");
+  $("aGuest").onclick = () => { sb.auth.signOut(); STORE = "startline.v1"; enterApp(null); };
+  let recovering = false;
+  sb.auth.onAuthStateChange((event) => {
+    if (event === "PASSWORD_RECOVERY") {
+      recovering = true;
+      $("auth").hidden = false; $("app").hidden = true;
+      $("authForm").hidden = true; $("resetForm").hidden = false;
+      document.querySelector(".auth-tabs").hidden = true; $("aGuest").hidden = true;
+    }
+  });
+  const { data: { session } } = await sb.auth.getSession();
+  if (session && !recovering && !/type=recovery/.test(location.hash)) return cloudEnter(session.user);
+  $("auth").hidden = false; $("app").hidden = true;
+  if (!recovering) setAuthMode("in");
+
+  $("aForgot").onclick = async () => {
+    const email = $("aEmail").value.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return authErr("Enter your email above, then tap Forgot your password.");
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl() });
+    if (error) return authErr(friendly(error));
+    authMsg("If there's an account for that email, a reset link is on its way. Open it on this device.");
+  };
+  $("resetForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const pw = $("rPass").value, err = m => { $("rErr").textContent = m; $("rErr").hidden = false; };
+    if (pw.length < 8) return err("Use a password of at least 8 characters.");
+    if (pw !== $("rPass2").value) return err("The two passwords don't match.");
+    $("rGo").disabled = true;
+    const { data, error } = await sb.auth.updateUser({ password: pw });
+    $("rGo").disabled = false;
+    if (error) return err(friendly(error));
+    history.replaceState(null, "", location.pathname);
+    $("resetForm").hidden = true; $("authForm").hidden = false; document.querySelector(".auth-tabs").hidden = false;
+    cloudEnter(data.user);
+  });
+  $("authForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const email = $("aEmail").value.trim().toLowerCase(), pw = $("aPass").value;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return authErr("Enter a valid email address.");
+    $("aGo").disabled = true;
+    try {
+      if (authMode === "up") {
+        const name = $("aName").value.trim();
+        if (!name) return authErr("Enter your name.");
+        if (pw.length < 8) return authErr("Use a password of at least 8 characters.");
+        if (pw !== $("aPass2").value) return authErr("The two passwords don't match.");
+        const { data, error } = await sb.auth.signUp({ email, password: pw, options: { data: { name }, emailRedirectTo: redirectUrl() } });
+        if (error) return authErr(friendly(error));
+        if (!data.session) { setAuthMode("in"); $("aEmail").value = email; return authMsg("Check your email and tap the confirmation link, then sign in here."); }
+        await cloudEnter(data.user);
+      } else {
+        const { data, error } = await sb.auth.signInWithPassword({ email, password: pw });
+        if (error) return authErr(friendly(error));
+        await cloudEnter(data.user);
+      }
+      $("aPass").value = ""; $("aPass2").value = "";
+    } finally { $("aGo").disabled = false; }
+  });
+}
+startAuth();
 })();
 </script>
 
