@@ -121,7 +121,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 @media (max-width: 640px) { .shopbar { grid-template-columns: minmax(0, 1fr); } }
 .shopstat { font-size: 14px; color: var(--muted); }
 .shopstat b { color: var(--ink); font-family: var(--f-data); font-weight: 500; }
-.aisles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; align-items: start; }
+/* masonry: each card spans as many 1px rows as it is tall, so the next card in a column starts right under it */
+.aisles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); column-gap: 12px; grid-auto-rows: 1px; align-items: start; }
+.aisles > .aisle { margin-bottom: 12px; }
 .aisle { padding: 14px; }
 .aisle h3 { color: var(--accent); }
 .glist { list-style: none; margin: 0; padding: 0; display: grid; }
@@ -1085,6 +1087,7 @@ function refreshMeals(plan) { const c = $("mealsCard"); if (!c) return; c.outerH
 
 function wireGrocery(plan) {
   const p = $("pShop"); if (!p) return;
+  packAisles(); const box = p.querySelector(".aisles"); if (aisleObs && box) { aisleObs.disconnect(); aisleObs.observe(box); }
   const { w } = selWeek(plan);
   const key = shopKey(plan, w);
   $("shopWeek").onchange = e => { shopWeek = +e.target.value; refreshShop(plan); refreshMeals(plan); };
@@ -1116,6 +1119,12 @@ function wireGrocery(plan) {
   };
 }
 function refreshShop(plan) { $("pShop").innerHTML = groceryHTML(plan); wireGrocery(plan); }
+function packAisles() {
+  const box = document.querySelector("#pShop .aisles"); if (!box) return;
+  box.querySelectorAll(".aisle").forEach(a => { a.style.gridRowEnd = ""; const h = a.getBoundingClientRect().height; if (h) a.style.gridRowEnd = `span ${Math.ceil(h + 12)}`; });
+}
+const aisleObs = typeof ResizeObserver === "function" ? new ResizeObserver(() => requestAnimationFrame(packAisles)) : null;
+window.addEventListener("resize", () => requestAnimationFrame(packAisles));
 
 // ---------- render ----------
 const sportLabel = { run:"Run", bike:"Bike", swim:"Swim", gym:"Gym", tri:"Tri", rest:"Off" };
