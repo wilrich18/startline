@@ -1457,7 +1457,7 @@ render();
 // Fill these in to switch on Supabase accounts (sign in from any device, password reset, plans saved online).
 // The anon key is meant to be public: row-level security in supabase/schema.sql keeps each person's data private.
 // Left empty, the app falls back to accounts stored in this browser only.
-const SUPABASE = { url: "", anonKey: "" };
+const SUPABASE = { url: "https://ftclcfhwpmyjpmfarbqn.supabase.co", anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0Y2xjZmh3cG15anBtZmFyYnFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM3Mjk3ODEsImV4cCI6MjEwOTMwNTc4MX0.c6DMtJ65NeGzVcGX3Ol2myLB6jI6JHz9e2NffBRh3Os" };
 const CLOUD = !!(SUPABASE.url && SUPABASE.anonKey);
 // Accounts live in this browser only: a salted PBKDF2 hash of the password, never the password itself.
 const USERS = "startline.users", SESSION = "startline.session";
