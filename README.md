@@ -8,6 +8,7 @@ Open `index.html` in a browser. It is one self-contained page with no build step
 
 - **Sign in:** create an account with your name, email and password, or continue as a guest. Each account keeps its own races and plans. With Supabase set up (below), accounts work on any device, plans are saved online, and forgotten passwords can be reset by email. Without it, accounts are stored only in the browser on that device (passwords salted and hashed with PBKDF2).
 - **My races:** add, edit and delete races (name, type, date, goal time), and pick which one the plan is for. You can also create your own race types.
+- **Training days:** tap the days of the week you're free (Mon to Sun). Sessions only go on those days, with the long session on the last free day of the week.
 - **Training plan:** a week-by-week plan with base, build, peak and taper phases, every fourth week easier, and the race week built around the day of your race. Sessions and weekly totals are shown by distance (km or miles).
 - **Nutrition plan:** daily calorie, carb, protein and fluid targets that follow each day's training, a carb load before longer races, and race-day fueling. "Meals this week" shows the meals and portions for any week.
 - **Grocery list:** the same week's meals turned into a shopping list in the package sizes stores sell, grouped by section, with tick boxes and a copy button.

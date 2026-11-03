@@ -170,6 +170,17 @@ table.menu tr.past { opacity: .5; }
 .who { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
 .who b { color: var(--ink); }
 
+.daypick { display: grid; gap: 6px; }
+#dayLbl { font-size: 13px; font-weight: 600; color: var(--muted); }
+.daychips { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.daychip { position: relative; cursor: pointer; }
+.daychip input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.daychip span { display: block; text-align: center; font-family: var(--f-display); font-size: 15px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; padding: 7px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); user-select: none; }
+.daychip input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.daychip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.daypick .hint.bad { color: var(--bad); }
+.day.off .rest { opacity: .8; }
+
 /* Results */
 main.out { display: grid; gap: 20px; min-width: 0; }
 .bib { position: relative; background: var(--bib); color: var(--bib-ink); border-radius: 8px; padding: 22px 28px 18px; box-shadow: 0 1px 0 rgba(0,0,0,.06), 0 8px 24px -14px rgba(0,0,0,.35); overflow: hidden; }
@@ -371,11 +382,15 @@ ul.meals li span { color: var(--muted); font-size: 12px; text-transform: upperca
           <label class="f">Fitness level<select id="level"><option value="0">Beginner</option><option value="1" selected>Intermediate</option><option value="2">Advanced</option></select></label>
           <label class="f"><span id="curLbl">Running now (km/wk)</span><input id="curKm" type="number" min="0" max="250" step="1" value="25"></label>
         </div>
-        <div class="row">
-          <label class="f">Days you can train<select id="days"><option>3</option><option>4</option><option selected>5</option><option>6</option><option>7</option></select></label>
-          <label class="f">Daily life<select id="life"><option value="1.3">Mostly sitting</option><option value="1.45">On my feet</option><option value="1.65">Physical job</option></select></label>
+        <div class="f daypick" role="group" aria-labelledby="dayLbl">
+          <span id="dayLbl">Days you can train</span>
+          <div class="daychips"><label class="daychip"><input type="checkbox" id="d0"><span>Mon</span></label><label class="daychip"><input type="checkbox" id="d1" checked><span>Tue</span></label><label class="daychip"><input type="checkbox" id="d2" checked><span>Wed</span></label><label class="daychip"><input type="checkbox" id="d3" checked><span>Thu</span></label><label class="daychip"><input type="checkbox" id="d4"><span>Fri</span></label><label class="daychip"><input type="checkbox" id="d5" checked><span>Sat</span></label><label class="daychip"><input type="checkbox" id="d6" checked><span>Sun</span></label></div>
+          <span class="hint" id="dayHint">Tap the days you're free. Sessions only go on those days.</span>
         </div>
-        <label class="f">Weight goal<select id="goal"><option value="0">Maintain</option><option value="-1">Lose slowly</option><option value="1">Gain</option></select></label>
+        <div class="row">
+          <label class="f">Daily life<select id="life"><option value="1.3">Mostly sitting</option><option value="1.45">On my feet</option><option value="1.65">Physical job</option></select></label>
+          <label class="f">Weight goal<select id="goal"><option value="0">Maintain</option><option value="-1">Lose slowly</option><option value="1">Gain</option></select></label>
+        </div>
       </fieldset>
 
       <fieldset>
@@ -441,8 +456,10 @@ const S = {
   SW1:{sport:"swim", w:1}, SW2:{sport:"swim", w:1.1}, SW3:{sport:"swim", w:.8},
   BQ:{sport:"bike", w:1.4}, BE:{sport:"bike", w:1.1}, TRE:{sport:"run", w:.8},
 };
-// Day templates, index 0 = Monday
+// Day templates, index 0 = Monday. The template for N days is laid onto the N days the person
+// picks, in order, so the long sessions land on the last free day of the week (usually the weekend).
 const RUN_T = {
+  2:{2:["RQ"],6:["LR"]},
   3:{1:["RQ"],3:["RE"],6:["LR"]},
   4:{1:["RQ"],3:["RE"],5:["RE"],6:["LR"]},
   5:{1:["RQ"],2:["RE"],3:["RQ2"],5:["RE"],6:["LR"]},
@@ -450,6 +467,7 @@ const RUN_T = {
   7:{0:["RR"],1:["RQ"],2:["RE"],3:["RQ2"],4:["RR"],5:["RE"],6:["LR"]},
 };
 const TRI_T = {
+  3:{1:["SW1","RQ"],3:["SW2","BQ"],6:["LB","LR"]},
   4:{1:["SW1","RQ"],3:["SW2","BQ"],5:["LB"],6:["LR"]},
   5:{1:["SW1","RQ"],2:["BQ"],3:["SW2","TRE"],5:["LB"],6:["LR"]},
   6:{1:["SW1","RQ"],2:["BQ"],3:["SW2","TRE"],4:["SW3"],5:["LB"],6:["LR"]},
@@ -629,6 +647,10 @@ function load() {
       const el = $(k); if (!el || el.closest("#raceEditor")) return;
       if (el.type === "checkbox") el.checked = !!o[k]; else el.value = o[k];
     });
+    if (!("d0" in o) && o.days) {
+      const pat = { 3:[1,3,6], 4:[1,3,5,6], 5:[1,2,3,5,6], 6:[1,2,3,4,5,6], 7:[0,1,2,3,4,5,6] }[+o.days] || [1,2,3,5,6];
+      for (let i = 0; i < 7; i++) $("d" + i).checked = pat.includes(i);
+    }
     if (Array.isArray(o.customTypes)) customTypes = o.customTypes.filter(t => t && t.id && t.name);
     if (Array.isArray(o.races)) {
       races = o.races.filter(r => r && r.id && getType(r.type));
@@ -673,7 +695,7 @@ function readInputs() {
   const goalMin = entry && race ? parseTime(entry.goal, race.short) : null;
   return {
     age: clamp(num("age",34),14,90), sex: $("sex").value, cm: clamp(cm,120,230), kg: clamp(kg,35,200),
-    level: +$("level").value, curKm: clamp(num("curKm",0) * (units === "imperial" ? 1.609 : 1), 0, 300), days: +$("days").value, life: +$("life").value, goal: +$("goal").value,
+    level: +$("level").value, curKm: clamp(num("curKm",0) * (units === "imperial" ? 1.609 : 1), 0, 300), avail: [0,1,2,3,4,5,6].filter(i => $("d" + i).checked), life: +$("life").value, goal: +$("goal").value,
     diet: $("diet").value, gf: $("gf").checked, df: $("df").checked, allergy: $("allergy").value.trim(), cond: $("cond").value.trim(),
     race, entry, date: entry ? parseISO(entry.date) : null, goalMin,
   };
@@ -698,8 +720,11 @@ function buildPlan(I) {
   if (N > 60) return { error: "That race is more than a year away. Pick a date within 60 weeks and come back closer to the time for a fresh plan." };
   const raceDow = (I.date.getDay()+6)%7;
 
-  let days = I.days;
-  if (R.sport === "tri" && days < 4) { days = 4; notes.push("Triathlon training needs at least 4 days a week to fit swim, bike and run, so this plan uses 4."); }
+  const avail = I.avail, days = avail.length;
+  const minDays = R.sport === "tri" ? 3 : 2;
+  if (days < minDays) return { error: `Pick at least ${minDays} days you can train${R.sport === "tri" ? " to fit swimming, cycling and running" : ""}. Tap them under "Days you can train".` };
+  if (R.sport === "tri" && days === 3) notes.push("With 3 training days, your long ride and long run share a day. Run straight off the bike, or later that day.");
+  if (days === 2) notes.push(`Two days a week is enough to finish a ${R.name.toLowerCase()}, but a third day, even a short easy run, would help a lot.`);
 
   const minWeeks = R.min + (I.level === 0 && !R.short ? 4 : 0);
   if (N < minWeeks) notes.push(`${N} week${N>1?"s":""} is a short lead-in for this race at your level. ${minWeeks}+ weeks is typical. The plan ramps volume gently and caps the peak to keep injury risk down, so consider a later race or a finish-only goal.`);
@@ -734,7 +759,7 @@ function buildPlan(I) {
   const weeks = vols.map((w, i) => {
     const mon = addDays(start, i*7);
     const isRace = i === N-1;
-    const dayList = isRace ? raceWeek(R, I, w.v, raceDow, days) : normalWeek(R, I, w, ratio(w.v), days);
+    const dayList = isRace ? raceWeek(R, I, w.v, raceDow, avail) : normalWeek(R, I, w, ratio(w.v), avail);
     const dl = dayList.map((sess, d) => {
       const date = addDays(mon, d);
       return { date, dow: d, sess, past: date < t0, after: isRace && d > raceDow };
@@ -745,25 +770,26 @@ function buildPlan(I) {
     return { n: i+1, mon, phase: w.phase, rec: w.rec, total, km, dist: km.run + km.bike + km.swim, days: dl, isRace };
   });
 
-  return { R, I, N, T, weeks, notes, peakVol, maxHard, raceDow, start, days, P };
+  return { R, I, N, T, weeks, notes, peakVol, maxHard, raceDow, start, days, avail, P };
 }
 
-function normalWeek(R, I, w, rat, days) {
-  const tpl = (R.sport === "tri" ? TRI_T : RUN_T)[days];
+function normalWeek(R, I, w, rat, avail) {
+  const tpl = (R.sport === "tri" ? TRI_T : RUN_T)[avail.length];
   const ph = w.phase, vol = w.v;
   const out = Array.from({length:7}, () => []);
   const keys = [];
-  Object.entries(tpl).forEach(([d, ks]) => ks.forEach(k => keys.push([+d, k])));
+  Object.keys(tpl).map(Number).sort((a, b) => a - b).forEach((d, i) => tpl[d].forEach(k => keys.push([avail[i], k])));
+  const sharedLong = keys.some(([d, k]) => k === "LR" && keys.some(([d2, k2]) => k2 === "LB" && d2 === d));
   let fixed = 0;
   const L = {};
   if (R.sport === "run") {
     L.LR = clamp(Math.min(R.lr * rat * (w.rec ? .8 : 1), vol*.45), 20, R.lr);
   } else {
     L.LB = clamp(Math.min(R.lb * rat * (w.rec ? .8 : 1), vol*.38), 30, R.lb);
-    L.LR = clamp(Math.min(R.lr * rat * (w.rec ? .8 : 1), vol*.2), 20, R.lr);
+    L.LR = clamp(Math.min(R.lr * rat * (w.rec ? .8 : 1), vol * (sharedLong ? .12 : .2)), 20, R.lr);
   }
   Object.values(L).forEach(m => fixed += m);
-  const brick = R.sport === "tri" && (ph === "Build" || ph === "Peak") && !w.rec ? (ph === "Peak" ? 20 : 15) : 0;
+  const brick = R.sport === "tri" && !sharedLong && (ph === "Build" || ph === "Peak") && !w.rec ? (ph === "Peak" ? 20 : 15) : 0;
   const flexKeys = keys.filter(([,k]) => !(k in L));
   const wsum = flexKeys.reduce((a,[,k]) => a + S[k].w, 0) || 1;
   const flex = Math.max(vol - fixed - brick, flexKeys.length * 20);
@@ -844,19 +870,22 @@ function session(k, min, ph, R, I, rec) {
   return { sport: S[k].sport, key: k, min, title, txt };
 }
 
-function raceWeek(R, I, vol, rd, days) {
+function raceWeek(R, I, vol, rd, avail) {
   const out = Array.from({length:7}, () => []);
   const tri = R.sport === "tri";
+  const free = d => d >= 0 && avail.includes(d);
+  // latest free day in [lo, hi]
+  const pickDay = (lo, hi) => { for (let d = hi; d >= lo; d--) if (free(d)) return d; return -1; };
   out[rd].push({ race:true, sport: tri ? "tri" : "run", key:"RACE", min:0, title:`${R.name}`, txt:"Race day. Start conservatively, stick to your fueling plan, enjoy it." });
-  if (rd >= 1) out[rd-1].push(tri
+  if (free(rd - 1)) out[rd-1].push(tri
     ? { sport:"tri", key:"SHAKE", min:30, title:"Shakeout", txt:"10 min each of swim, bike and run, with a few short pickups. Check your gear." }
     : { sport:"run", key:"SHAKE", min:20, title:"Shakeout run", txt:"Easy, with 3–4 × 20 s pickups to race pace." });
-  const sharpen = rd - 3;
+  const sharpen = free(rd - 3) ? rd - 3 : pickDay(rd - 4, rd - 2);
   if (sharpen >= 0) out[sharpen].push(tri
     ? { sport:"bike", key:"SHARP", min: r5(clamp(vol*.3, 30, 60)), title:"Bike openers", txt:"Easy ride with 3 × 2 min at race effort." }
     : { sport:"run", key:"SHARP", min: r5(clamp(vol*.3, 25, 45)), title:"Sharpener", txt:`Easy run with 3 × 3 min at goal ${R.name} pace.` });
-  const easy = rd - 5;
-  if (easy >= 0 && days >= 4) out[easy].push(tri
+  const easy = pickDay(0, (sharpen >= 0 ? sharpen : rd - 1) - 2);
+  if (easy >= 0 && avail.length >= 4) out[easy].push(tri
     ? { sport:"swim", key:"EZS", min: 30, title:"Easy swim", txt:"Relaxed, with 4 × 50 m at race pace." }
     : { sport:"run", key:"EZR", min: r5(clamp(vol*.3, 20, 40)), title:"Easy run", txt:"Zone 2, conversational." });
   for (let d = rd+1; d < 7; d++) out[d].push({ sport:"rest", key:"POST", min:0, title:"Recover", txt:"Walk, eat well, sleep. Easy movement only for a few days.", race:true });
@@ -1085,14 +1114,19 @@ function refreshShop(plan) { $("pShop").innerHTML = groceryHTML(plan); wireGroce
 const sportLabel = { run:"Run", bike:"Bike", swim:"Swim", gym:"Gym", tri:"Tri", rest:"Off" };
 let tab = "train";
 
+function syncDayHint() {
+  const n = [0,1,2,3,4,5,6].filter(i => $("d" + i).checked).length;
+  $("dayHint").textContent = n ? `${n} day${n > 1 ? "s" : ""} a week. Sessions only go on the days you pick.` : "Tap the days you're free. Sessions only go on those days.";
+}
 function render() {
+  syncDayHint();
   const I = readInputs();
   const out = $("out");
   if (!I.entry || !I.race) { out.innerHTML = `<div class="empty-out"><h2>No race yet</h2><p>Add a race under My races to build your training and nutrition plan.</p></div>`; return; }
   const plan = buildPlan(I);
   if (plan.error) { out.innerHTML = `<div class="notice err">${esc(plan.error)}</div>`; return; }
   const { R, N, weeks } = plan;
-  curR = R;
+  curR = R; curAvail = plan.avail;
   const daysLeft = Math.round((I.date - today0()) / DAY);
   const fin = finishMin(R, I);
   const fuel = raceFuel(R, I);
@@ -1127,7 +1161,7 @@ function render() {
       </div>
       <div class="bib-stats">
         <div>Peak week<b>${R.sport === "tri" ? fmtTotal(peakWeek.km.bike) + " bike" : fmtTotal(peakWeek.km.run)}</b></div>
-        <div>Training days<b>${plan.days} / week</b></div>
+        <div>Training days<b>${plan.avail.length === 7 ? "Every day" : plan.avail.map(i => DN[i]).join(" · ")}</b></div>
         <div>Est. finish<b>${fmtMin(fin)}</b></div>
         <div>Race-day carbs<b>${fuel.rate ? fuel.rate + " g/hr" : "not needed"}</b></div>
       </div>
@@ -1168,7 +1202,7 @@ function setTab(t) {
   [["train","tTrain","pTrain"],["food","tFood","pFood"],["shop","tShop","pShop"]].forEach(([k, b, pn]) => { $(b).setAttribute("aria-selected", t === k); $(pn).hidden = t !== k; });
 }
 
-let curR = null;
+let curR = null, curAvail = null;
 function weekHTML(w, open) {
   const end = addDays(w.mon, 6);
   const col = `var(${PHASE_COLOR[w.phase]})`;
@@ -1188,7 +1222,7 @@ function dayHTML(d) {
   const sess = d.sess.length ? d.sess.map(s => s.key === "RACE"
       ? `<div class="sess race-day"><span class="sport">Race</span><div><b>${esc(s.title)}</b></div><p>${esc(s.txt)}</p></div>`
       : `<div class="sess"><span class="sport">${sportLabel[s.sport]}</span><div><b>${esc(s.title)}</b>${s.km ? `<span class="dur">${fmtDist(s.km, s.sport)}</span>` : s.min ? `<span class="dur">${fmtMin(s.min)}</span>` : ""}</div><p>${esc(s.txt)}</p></div>`).join("")
-    : `<div class="rest">Rest day</div>`;
+    : `<div class="rest">${curAvail && !curAvail.includes(d.dow) ? "Not a training day for you" : "Rest day"}</div>`;
   const fuelHTML = f.isRace ? `<div class="fuel"><b>Race day</b>See race-day fueling in the nutrition plan.</div>`
     : d.after ? `<div class="fuel"><b>Recovery</b>Eat normally, prioritise protein and fluids.</div>`
     : `<div class="fuel"><b>${f.label}</b><span>${r10(f.kcal)} kcal</span> · carbs <span>${Math.round(f.C)} g</span><br>protein <span>${Math.round(f.P)} g</span> · fluid <span>${f.fluid.toFixed(1)} L</span></div>`;
