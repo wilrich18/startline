@@ -117,7 +117,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .empty-out { background: var(--surface); border: 1px dashed var(--line); border-radius: 10px; padding: 28px; text-align: center; color: var(--muted); }
 .empty-out h2 { color: var(--ink); }
 
-.shopbar { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.shopbar { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; }
 @media (max-width: 640px) { .shopbar { grid-template-columns: minmax(0, 1fr); } }
 .shopstat { font-size: 14px; color: var(--muted); }
 .shopstat b { color: var(--ink); font-family: var(--f-data); font-weight: 500; }
@@ -1022,8 +1022,10 @@ function basketLine(g, q) {
   const buy = /^\d/.test(label) ? `${n} × ${label}` : n === 1 ? `1 ${label}` : `${n} ${label.startsWith("sweet") ? "sweet potatoes" : plural(label)}`;
   return { buy, uses: left > size * .25 ? `you'll use about ${fmtPortion(g, q)}` : "", keeps: !!pk[4] };
 }
-let shopWeek = null, shopPeople = 1;
-function shopKey(plan, w) { return `${STORE}.shop.${plan.I.entry.id}.${w.n}`; }
+let shopWeek = null, shopPeople = 1, shopSpan = 1;
+function shopKey(plan, w) { return `${STORE}.shop.${plan.I.entry.id}.${w.n}${shopWeeks(plan, w).length > 1 ? "x" + shopWeeks(plan, w).length : ""}`; }
+// the weeks one shopping trip covers, starting at the picked week and stopping at race week
+function shopWeeks(plan, w) { const i = plan.weeks.indexOf(w); return plan.weeks.slice(i, i + shopSpan); }
 function getChecks(key) { try { return JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) { return {}; } }
 function selWeek(plan) {
   const t0 = today0(), weeks = plan.weeks;
@@ -1038,19 +1040,22 @@ function weekSelect(plan, id) {
 
 function groceryHTML(plan) {
   const { w } = selWeek(plan);
-  const menu = weekMenu(plan, w);
+  const span = shopWeeks(plan, w), last = span[span.length - 1];
   const tot = {};
-  menu.forEach(m => m.items.forEach(([g, q]) => tot[g] = (tot[g] || 0) + q * shopPeople));
+  span.forEach(x => weekMenu(plan, x).forEach(m => m.items.forEach(([g, q]) => tot[g] = (tot[g] || 0) + q * shopPeople)));
   const checks = getChecks(shopKey(plan, w));
   const byAisle = AISLES.map(a => [a, Object.keys(tot).filter(g => ING[g][1] === a).sort((x, y) => ING[x][0].localeCompare(ING[y][0]))]).filter(([, l]) => l.length);
   const n = Object.keys(tot).length, done = Object.keys(tot).filter(g => checks[g]).length;
   return `<div class="stack">
-    <p class="sub">Everything for this week's meals, in the sizes stores sell. Items marked <span class="keeps">keeps</span> last for weeks, so check your cupboard and freezer before buying them again. The meals and daily portions are in the Nutrition plan tab.</p>
+    <p class="sub">Everything for ${span.length > 1 ? `${span.length} weeks of meals (${fmtDate(w.mon)} – ${fmtDate(addDays(last.mon, 6))})` : "this week's meals"}, in the sizes stores sell. Items marked <span class="keeps">keeps</span> last for weeks, so check your cupboard and freezer before buying them again. The meals and daily portions are in the Nutrition plan tab.</p>
     <div class="shopbar">
       ${weekSelect(plan, "shopWeek")}
+      <label class="f">Food to last<select id="shopSpan">${[1,2,3,4].map(k => `<option value="${k}"${k === shopSpan ? " selected" : ""}>${k} ${k === 1 ? "week" : "weeks"}</option>`).join("")}</select></label>
       <label class="f">Shopping for<select id="shopPeople">${[1,2,3,4,5,6].map(k => `<option value="${k}"${k === shopPeople ? " selected" : ""}>${k} ${k === 1 ? "person" : "people"}</option>`).join("")}</select></label>
       <div class="btns"><button type="button" class="btn" id="shopCopy">Copy list</button><button type="button" class="btn" id="shopClear">Clear ticks</button></div>
     </div>
+    ${span.length < shopSpan ? `<p class="hint">Your plan ends with race week, so this list covers ${span.length} ${span.length === 1 ? "week" : "weeks"}.</p>` : ""}
+    ${span.length > 1 ? `<p class="hint">Items without the <span class="keeps">keeps</span> tag are fresh. For a ${span.length}-week shop, freeze meat, fish and bread you won't use in the first few days, and plan a quick top-up for milk, salad and soft fruit.</p>` : ""}
     <div class="shopstat"><b>${done}</b> of <b>${n}</b> items in the basket<span id="copyMsg" class="hint" aria-live="polite"></span></div>
     <div class="aisles">${byAisle.map(([a, list]) => `<section class="card aisle"><h3>${a}</h3><ul class="glist">${list.map(g => { const b = basketLine(g, tot[g]); return `<li><label><input type="checkbox" data-g="${g}"${checks[g] ? " checked" : ""}><span class="gitem"><span class="gname">${esc(ING[g][0])}</span>${b.keeps ? ` <span class="keeps">keeps</span>` : ""}<span class="gqty">${b.buy}${b.uses ? ` <small>· ${b.uses}</small>` : ""}</span></span></label></li>`; }).join("")}</ul></section>`).join("")}</div>
     <p class="hint">Also keep salt, pepper, spices and garlic on hand${plan.I.allergy ? `. This list doesn't check for ${esc(plan.I.allergy)}` : ""}.</p>
@@ -1083,6 +1088,7 @@ function wireGrocery(plan) {
   const { w } = selWeek(plan);
   const key = shopKey(plan, w);
   $("shopWeek").onchange = e => { shopWeek = +e.target.value; refreshShop(plan); refreshMeals(plan); };
+  $("shopSpan").onchange = e => { shopSpan = +e.target.value; try { localStorage.setItem(STORE + ".span", shopSpan); } catch (er) {} refreshShop(plan); };
   $("shopPeople").onchange = e => { shopPeople = +e.target.value; try { localStorage.setItem(STORE + ".people", shopPeople); } catch (er) {} refreshShop(plan); };
   p.querySelectorAll("input[data-g]").forEach(cb => cb.onchange = () => {
     const c = getChecks(key); if (cb.checked) c[cb.dataset.g] = 1; else delete c[cb.dataset.g];
@@ -1091,7 +1097,8 @@ function wireGrocery(plan) {
   });
   $("shopClear").onclick = () => { try { localStorage.removeItem(key); } catch (e) {} refreshShop(plan); };
   $("shopCopy").onclick = () => {
-    const lines = [`Groceries · Week ${w.n} (${fmtDate(w.mon)} – ${fmtDate(addDays(w.mon, 6))})`];
+    const span = shopWeeks(plan, w), last = span[span.length - 1];
+    const lines = [`Groceries · ${span.length > 1 ? `Weeks ${w.n}–${last.n}` : `Week ${w.n}`} (${fmtDate(w.mon)} – ${fmtDate(addDays(last.mon, 6))})`];
     p.querySelectorAll(".aisle").forEach(a => {
       lines.push("", a.querySelector("h3").textContent.toUpperCase());
       a.querySelectorAll("li").forEach(li => {
@@ -1437,6 +1444,7 @@ $("tyDelete").onclick = () => {
 
 function boot() {
 try { shopPeople = +localStorage.getItem(STORE + ".people") || 1; } catch (e) {}
+try { shopSpan = clamp(+localStorage.getItem(STORE + ".span") || 1, 1, 4); } catch (e) {}
 try { tab = localStorage.getItem(STORE + ".tab") || "train"; } catch (e) {}
 const loaded = load();
 if (loaded) $("exampleNote").hidden = true;
