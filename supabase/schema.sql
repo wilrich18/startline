@@ -12,12 +12,12 @@ alter table public.startline_data enable row level security;
 
 drop policy if exists "Read own data" on public.startline_data;
 create policy "Read own data" on public.startline_data
-  for select to authenticated using (auth.uid() = user_id);
+  for select to authenticated using ((select auth.uid()) = user_id);
 
 drop policy if exists "Insert own data" on public.startline_data;
 create policy "Insert own data" on public.startline_data
-  for insert to authenticated with check (auth.uid() = user_id);
+  for insert to authenticated with check ((select auth.uid()) = user_id);
 
 drop policy if exists "Update own data" on public.startline_data;
 create policy "Update own data" on public.startline_data
-  for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
