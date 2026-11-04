@@ -21,3 +21,22 @@ create policy "Insert own data" on public.startline_data
 drop policy if exists "Update own data" on public.startline_data;
 create policy "Update own data" on public.startline_data
   for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+
+-- Lets a signed-in person delete their own account from the app (required by the App Store).
+-- Deleting the auth.users row also deletes their startline_data row through the foreign key above.
+create or replace function public.delete_my_account()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  delete from auth.users where id = auth.uid();
+end;
+$$;
+
+revoke execute on function public.delete_my_account() from public, anon;
+grant execute on function public.delete_my_account() to authenticated;

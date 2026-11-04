@@ -47,6 +47,8 @@ npm run ios
 
 To run on your own iPhone, open **App > Signing & Capabilities** in Xcode, choose your Apple ID as the **Team**, plug in the phone and pick it as the run target. A free Apple ID works for testing on your own phone. Publishing to the App Store or TestFlight needs an Apple Developer account ($99 a year).
 
+Signed-in people can delete their account with **Delete account** at the top of the app, as the App Store requires. In Supabase mode this calls the `delete_my_account` function in `supabase/schema.sql`, so run that part of the file in the SQL Editor if your project was set up before it was added. The privacy policy is `privacy.html` (live at `https://wilrich18.github.io/startline/privacy.html`), which you can use as the App Store privacy policy URL.
+
 Email confirmation and password-reset links from the app open the live site (`https://wilrich18.github.io/startline/`), so keep that URL in Supabase's **Redirect URLs**.
 
 ## Not medical advice
