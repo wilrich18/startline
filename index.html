@@ -138,6 +138,18 @@ table.menu td:first-child { min-width: 70px; }
 table.menu tr.past { opacity: .5; }
 .copybox { width: 100%; min-height: 160px; font-family: var(--f-data); font-size: 12.5px; }
 
+.pantryadd { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 12px; align-items: end; }
+@media (max-width: 640px) { .pantryadd { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .pantryadd .f:first-child { grid-column: 1 / -1; } }
+.pantryin { display: grid; gap: 12px; }
+.plist { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.plist li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.plist li:first-child { border-top: 0; }
+.plist button { border: 0; background: transparent; color: var(--muted); font-size: 18px; cursor: pointer; padding: 0 6px; }
+.pdays { max-width: 220px; }
+.psum { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 16px; font-size: 14px; margin: 8px 0; }
+.pbar { display: inline-block; vertical-align: middle; width: 70px; height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin-left: 6px; }
+.pbar i { display: block; height: 100%; background: var(--accent); }
+.pday { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
 .shopmode { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 .allergybar { display: grid; gap: 8px; }
 .addrow { display: flex; gap: 8px; } .addrow input { flex: 1; min-width: 0; }
@@ -1325,6 +1337,176 @@ function packAisles() {
 const aisleObs = typeof ResizeObserver === "function" ? new ResizeObserver(() => requestAnimationFrame(packAisles)) : null;
 window.addEventListener("resize", () => requestAnimationFrame(packAisles));
 
+// ---------- my food: plan meals from what you already bought ----------
+// stock is kept in each item's own unit (g, ml, pieces, slices, tbsp, cans)
+let pantry = { items: {}, days: 7 };
+function loadPantry() {
+  try { const o = JSON.parse(localStorage.getItem(STORE + ".pantry") || "null"); if (o && o.items) pantry = { items: o.items, days: clamp(+o.days || 7, 1, 28) }; else pantry = { items: {}, days: 7 }; } catch (e) { pantry = { items: {}, days: 7 }; }
+}
+function savePantry() { try { localStorage.setItem(STORE + ".pantry", JSON.stringify(pantry)); } catch (e) {} }
+const PANTRY_SKIP = new Set(["gel", "drinkmix"]);
+// units a person can type an amount in, as [label, how many of the item's own unit in one]
+function pantryUnits(g) {
+  const pk = PACK[g] || [0, "", 0, "", 0], size = imp() ? pk[2] : pk[0], label = imp() ? pk[3] : pk[1], u = ING[g][2];
+  const out = [];
+  const pack = size && size !== 1 ? [`packs (${label})`, size] : null;
+  if (pack && (u === "g" || u === "ml")) out.push(pack);
+  if (u === "g") out.push(["g", 1], ["kg", 1000], ["oz", 28.35], ["lb", 453.6]);
+  else if (u === "ml") out.push(["ml", 1], ["L", 1000], ["fl oz", 29.57]);
+  else out.push([{ pc: "pieces", slice: "slices", tbsp: "tbsp", can: "cans" }[u] || u, 1]);
+  if (pack && !(u === "g" || u === "ml")) out.push(pack);
+  return out;
+}
+const ingByName = t => { t = (t || "").trim().toLowerCase(); if (!t) return null; return Object.keys(ING).find(g => !PANTRY_SKIP.has(g) && ING[g][0].toLowerCase() === t) || Object.keys(ING).find(g => !PANTRY_SKIP.has(g) && ING[g][0].toLowerCase().includes(t)) || null; };
+const allergenSet = I => { const s = new Set(); allergyTerms(I.allergy).forEach(t => allergyHits(t).forEach(g => s.add(g))); return s; };
+// the days from today on that the food should cover, carrying the plan's training days; past race week, rest days
+function pantryDays(plan, n) {
+  const t0 = today0(), days = plan.weeks.flatMap(w => w.days).filter(d => d.date >= t0);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const date = addDays(t0, i), d = days.find(x => +x.date === +date);
+    out.push(d || { date, dow: (date.getDay() + 6) % 7, sess: [], fuel: { mins: 0, isRace: false, C: plan.I.kg * 4, P: plan.I.kg * 1.6, label: "Rest" } });
+  }
+  return out;
+}
+// Day by day: cook the meals your food covers (most-stocked first, varied), size the carb and protein
+// foods to the day's targets, never take more than a fair share of what's left, and build a simple
+// plate from what remains when no full recipe fits.
+function pantryPlan(plan) {
+  const I = plan.I, bad = allergenSet(I);
+  const left = {}; Object.entries(pantry.items).forEach(([g, q]) => { if (ING[g] && q > 0 && !bad.has(g)) left[g] = q; });
+  const block = new Set(DIET_BLOCK[I.diet]); if (I.gf) block.add("gluten"); if (I.df) block.add("dairy");
+  const opts = k => MEALS[k].filter(([, tags]) => !tags.some(t => block.has(t))).map(([t]) => t);
+  const slots = { breakfast: opts("breakfast"), lunch: opts("lunch"), dinner: opts("dinner"), snack: opts("snack") };
+  const used = {}, days = pantryDays(plan, pantry.days), N = days.length;
+  const has = g => (left[g] || 0) > (ING[g][2] === "g" || ING[g][2] === "ml" ? 5 : .25);
+  const canMake = r => (RECIPE[r] || []).every(([g]) => has(g) || OPTIONAL.includes(g)) && (RECIPE[r] || []).some(([g]) => has(g) && ING[g][5]);
+  const out = days.map((d, di) => {
+    const daysLeft = N - di, training = d.fuel.mins > 0 || d.fuel.isRace;
+    const C = d.fuel.isRace ? I.kg * 7 : d.fuel.C, P = d.fuel.isRace ? I.kg * 1.6 : d.fuel.P;
+    const want = [["Breakfast", "breakfast"], ["Lunch", "lunch"], ["Dinner", "dinner"], ["Snack", "snack"]].concat(training ? [["Snack", "snack"]] : []);
+    const meals = [];
+    want.forEach(([label, slot]) => {
+      const cands = slots[slot].filter(r => canMake(r) && !meals.some(m => m.name === r));
+      cands.sort((a, b) => (used[a] || 0) - (used[b] || 0));
+      const r = cands[0];
+      if (r) { used[r] = (used[r] || 0) + 1; meals.push({ label, name: r, items: RECIPE[r].filter(([g]) => has(g)).map(([g, q]) => [g, q]) }); }
+      else if (slot !== "snack") meals.push({ label, name: null, items: [] });
+    });
+    // fill empty main meals with a plate: a carb food, a protein food and a vegetable or fruit from what's left
+    const taken = new Set();
+    // most of it left (by carbs, protein or amount) first, and not the same food twice in a day
+    const pick = (pred, idx, again) => { const g = Object.keys(left).filter(g => has(g) && pred(g) && (again || !taken.has(g))).sort((a, b) => left[b] * (idx ? ING[b][idx] : 1) - left[a] * (idx ? ING[a][idx] : 1))[0]; if (g) taken.add(g); return g; };
+    meals.forEach(m => {
+      if (m.name) return;
+      const brekky = new Set(["oats","granola","ricecakes","dates","banana","oj","milk","soymilk","oatmilk","jam","honey"]);
+      const c = pick(g => ING[g][5] === "c" && !brekky.has(g), 3) || pick(g => ING[g][5] === "c" && !brekky.has(g), 3, true) || pick(g => ING[g][5] === "c", 3), p = pick(g => ING[g][5] === "p", 4) || pick(g => ING[g][5] === "p", 4, true), veg = g => ING[g][1] === "Produce" && !ING[g][5], v = pick(veg) || pick(veg, 0, true);
+      const share = g => left[g] / daysLeft / 2.5;
+      m.items = [c, p, v].filter(Boolean).map(g => [g, ING[g][2] === "g" || ING[g][2] === "ml" ? share(g) : Math.max(.5, Math.round(share(g) * 2) / 2)]);
+      m.name = m.items.length ? `Plate: ${m.items.map(([g]) => shortName(g)).join(", ")}` : null;
+    });
+    const list = meals.filter(m => m.name);
+    // size carb and protein foods toward ~85% of the day's targets
+    const all = list.flatMap(m => m.items);
+    const flex = (g, role) => ING[g][5] === role && ["g", "ml"].includes(ING[g][2]);
+    const part = (pred, idx) => all.filter(([g]) => pred(g)).reduce((a, [g, q]) => a + ING[g][idx] * q, 0);
+    const mc = clamp((C * .85 - part(g => !flex(g, "c"), 3)) / (part(g => flex(g, "c"), 3) || 1), .5, 3);
+    const mp = clamp((P * .85 - part(g => !flex(g, "p"), 4)) / (part(g => flex(g, "p"), 4) || 1), .5, 2.5);
+    list.forEach(m => m.items = m.items.map(([g, q]) => [g, q * (flex(g, "c") ? mc : flex(g, "p") ? mp : 1)]));
+    // ration: a day can take at most ~1.5× its fair share of anything, and never more than is left
+    const need = {}; list.forEach(m => m.items.forEach(([g, q]) => need[g] = (need[g] || 0) + q));
+    const cap = {}; Object.keys(need).forEach(g => { const fair = left[g] / daysLeft * 1.5; cap[g] = Math.min(1, left[g] / need[g], Math.max(fair, ING[g][2] === "g" || ING[g][2] === "ml" ? 0 : 1) / need[g]); });
+    list.forEach(m => m.items = m.items.map(([g, q]) => [g, q * cap[g]]).filter(([g, q]) => q > (ING[g][2] === "g" || ING[g][2] === "ml" ? 4 : .2)));
+    list.forEach(m => m.items.forEach(([g, q]) => left[g] -= q));
+    const carbs = list.reduce((a, m) => a + m.items.reduce((b, [g, q]) => b + ING[g][3] * q, 0), 0);
+    const prot = list.reduce((a, m) => a + m.items.reduce((b, [g, q]) => b + ING[g][4] * q, 0), 0);
+    return { d, meals: list, carbs, prot, C, P };
+  });
+  // top-up: spread leftover carb and protein foods over the days that came up short
+  out.forEach((x, di) => {
+    [[3, "C", "carbs"], [4, "P", "prot"]].forEach(([idx, T, k]) => {
+      Object.keys(left).filter(g => has(g) && ING[g][5] === (idx === 3 ? "c" : "p") && ING[g][idx] > 0).forEach(g => {
+        const gap = x[T] * .85 - x[k]; if (gap <= 0) return;
+        const w = ING[g][2] === "g" || ING[g][2] === "ml";
+        let q = Math.min(left[g] / (N - di), gap / ING[g][idx]); if (!w) q = Math.floor(q); if (q < (w ? 10 : 1)) return;
+        const m = x.meals.find(m => m.items.some(([h]) => h === g)) || x.meals.find(m => m.label === "Dinner") || x.meals[0]; if (!m) return;
+        const it = m.items.find(([h]) => h === g); if (it) it[1] += q; else m.items.push([g, q]);
+        left[g] -= q; x.carbs += ING[g][3] * q; x.prot += ING[g][4] * q;
+      });
+    });
+  });
+  const avgC = out.reduce((a, x) => a + x.carbs / x.C, 0) / N, avgP = out.reduce((a, x) => a + x.prot / x.P, 0) / N;
+  const firstShort = out.findIndex(x => x.carbs < x.C * .5 || x.prot < x.P * .5);
+  const leftover = Object.keys(left).filter(g => left[g] >= (ING[g][2] === "g" || ING[g][2] === "ml" ? 25 : 1));
+  const fresh = N > 7 ? Object.keys(pantry.items).filter(g => !(PACK[g] || [])[4] && !bad.has(g) && ING[g][1] !== "Pantry") : [];
+  const skippedAllergy = Object.keys(pantry.items).filter(g => bad.has(g));
+  return { days: out, avgC, avgP, firstShort, leftover, left, fresh, skippedAllergy };
+}
+function pantryHTML(plan) {
+  const items = Object.keys(pantry.items).filter(g => ING[g]).sort((a, b) => ING[a][0].localeCompare(ING[b][0]));
+  const names = Object.keys(ING).filter(g => !PANTRY_SKIP.has(g)).map(g => ING[g][0]).sort();
+  const P = items.length ? pantryPlan(plan) : null;
+  const pct = v => Math.round(v * 100);
+  const bar = (v, t) => `<span class="pbar"><i style="width:${clamp(v / t * 100, 0, 100)}%"></i></span>`;
+  const gaps = [];
+  if (P && P.avgC < .8) gaps.push(`carbs: about ${Math.round((1 - P.avgC) * P.days.reduce((a, x) => a + x.C, 0) / P.days.length)} g a day short, so add rice, pasta, oats or bread`);
+  if (P && P.avgP < .8) gaps.push(`protein: about ${Math.round((1 - P.avgP) * P.days.reduce((a, x) => a + x.P, 0) / P.days.length)} g a day short, so add ${plan.I.diet === "vegan" || plan.I.diet === "veg" ? "tofu, lentils or beans" : "chicken, eggs, tofu or Greek yogurt"}`);
+  return `<div class="stack">
+    <p class="sub">Add the food you've bought and how long it needs to last. Start/Line spreads it across those days, plans meals around your training and shows where you'll fall short.</p>
+    <section class="card pantryin">
+      <div class="pantryadd">
+        <label class="f">Food<input id="pFoodName" type="text" list="pFoodList" placeholder="Start typing, e.g. rice"><datalist id="pFoodList">${names.map(n => `<option value="${esc(n)}">`).join("")}</datalist></label>
+        <label class="f">Amount<input id="pAmt" type="number" min="0" step="any" inputmode="decimal" placeholder="1"></label>
+        <label class="f">Unit<select id="pUnit"><option value="">Pick a food first</option></select></label>
+        <div class="btns"><button type="button" class="btn primary" id="pAdd">Add</button></div>
+      </div>
+      <p class="hint" id="pMsg" aria-live="polite"></p>
+      <div class="btns"><button type="button" class="btn" id="pFromList">Add this grocery list</button>${items.length ? `<button type="button" class="btn" id="pClear">Clear all</button>` : ""}</div>
+      ${items.length ? `<ul class="plist">${items.map(g => `<li><span>${esc(ING[g][0])}${P && P.skippedAllergy.includes(g) ? ` <span class="keeps">allergy, not used</span>` : ""}</span><span class="gqty">${fmtPortion(g, pantry.items[g])}${P && P.left[g] > .5 && !P.skippedAllergy.includes(g) ? ` <small>· ${fmtPortion(g, P.left[g])} left after</small>` : ""}</span><button type="button" data-prm="${g}" aria-label="Remove ${esc(ING[g][0])}">×</button></li>`).join("")}</ul>` : `<p class="hint">Nothing added yet. Type a food above, or add the whole grocery list in one go.</p>`}
+      <label class="f pdays">Make it last<select id="pDays">${[3,4,5,6,7,10,14,21,28].map(k => `<option value="${k}"${k === pantry.days ? " selected" : ""}>${k} days</option>`).join("")}</select></label>
+    </section>
+    ${P ? `<section class="card">
+      <h2>Your ${pantry.days}-day plan</h2>
+      <div class="psum">
+        <div><b>${pct(P.avgC)}%</b> of your carb target ${bar(P.avgC, 1)}</div>
+        <div><b>${pct(P.avgP)}%</b> of your protein target ${bar(P.avgP, 1)}</div>
+      </div>
+      ${gaps.length ? `<p class="budgetnote over">Your food runs a bit short on ${gaps.join("; and ")}.${P.firstShort >= 0 ? ` The thin days start around ${DN[P.days[P.firstShort].d.dow]} ${fmtDate(P.days[P.firstShort].d.date)}.` : ""}</p>` : `<p class="budgetnote">Your food covers your targets for all ${pantry.days} days.</p>`}
+      ${P.fresh.length ? `<p class="hint">For ${pantry.days} days, freeze or eat these fresh foods first: ${P.fresh.map(g => shortName(g)).join(", ")}.</p>` : ""}
+      ${P.leftover.length ? `<p class="hint">Left over at the end: ${P.leftover.map(g => `${shortName(g)} (${fmtPortion(g, P.left[g])})`).join(", ")}.</p>` : ""}
+      <div class="mdays">${P.days.map(x => `<div class="mday">
+        <div class="dname">${DN[x.d.dow]}<small>${fmtDate(x.d.date)}</small><span class="mtag">${x.d.fuel.isRace ? "Race day" : x.d.fuel.label}</span></div>
+        <div><ul class="meals">${x.meals.map(m => `<li><span>${m.label}</span>${esc(m.name)}<em>${m.items.map(([g, q]) => `${shortName(g)} ${fmtPortion(g, q)}`).join(", ")}</em></li>`).join("") || `<li>Nothing left for this day.</li>`}</ul>
+        <p class="pday">Carbs ${Math.round(x.carbs)} of ${Math.round(x.C)} g ${bar(x.carbs, x.C)} · Protein ${Math.round(x.prot)} of ${Math.round(x.P)} g ${bar(x.prot, x.P)}</p></div>
+      </div>`).join("")}</div>
+    </section>` : ""}
+  </div>`;
+}
+function wirePantry(plan) {
+  const p = $("pPantry"); if (!p) return;
+  const fillUnits = () => { const g = ingByName($("pFoodName").value); $("pUnit").innerHTML = g ? pantryUnits(g).map(([l, m], i) => `<option value="${m}"${i === 0 ? " selected" : ""}>${esc(l)}</option>`).join("") : `<option value="">Pick a food first</option>`; };
+  $("pFoodName").oninput = fillUnits; $("pFoodName").onchange = fillUnits;
+  const add = () => {
+    const g = ingByName($("pFoodName").value), amt = parseFloat($("pAmt").value) || 1, mult = parseFloat($("pUnit").value);
+    if (!g) { $("pMsg").textContent = "Pick a food from the list. Start typing to see matches."; return; }
+    if (!mult) fillUnits();
+    const m = parseFloat($("pUnit").value) || 1;
+    pantry.items[g] = (pantry.items[g] || 0) + amt * m; savePantry(); refreshPantry(plan);
+    $("pMsg").textContent = `Added ${fmtPortion(g, amt * m)} ${shortName(g)}.`; $("pFoodName").focus();
+  };
+  $("pAdd").onclick = add;
+  ["pFoodName", "pAmt"].forEach(id => $(id).onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); add(); } });
+  $("pFromList").onclick = () => {
+    const { tot } = shopList(plan);
+    Object.keys(tot).filter(g => !PANTRY_SKIP.has(g)).forEach(g => { const pk = PACK[g] || [0, "", 0, "", 0], size = imp() ? pk[2] : pk[0]; pantry.items[g] = (pantry.items[g] || 0) + (size ? packCount(g, tot[g]) * size : Math.ceil(tot[g] - .05)); });
+    savePantry(); refreshPantry(plan); $("pMsg").textContent = "Added everything on the grocery list, in the pack sizes you'd buy.";
+  };
+  if ($("pClear")) $("pClear").onclick = () => { pantry.items = {}; savePantry(); refreshPantry(plan); };
+  p.querySelectorAll("[data-prm]").forEach(b => b.onclick = () => { delete pantry.items[b.dataset.prm]; savePantry(); refreshPantry(plan); });
+  $("pDays").onchange = e => { pantry.days = +e.target.value; savePantry(); refreshPantry(plan); };
+}
+function refreshPantry(plan) { const msg = $("pMsg") ? $("pMsg").textContent : ""; $("pPantry").innerHTML = pantryHTML(plan); wirePantry(plan); if (msg) $("pMsg").textContent = msg; }
+
 // ---------- render ----------
 const sportLabel = { run:"Run", bike:"Bike", swim:"Swim", gym:"Gym", tri:"Tri", rest:"Off" };
 let tab = "train";
@@ -1397,6 +1579,7 @@ function render() {
         <button role="tab" id="tTrain" aria-selected="${tab==="train"}" aria-controls="pTrain">Training plan</button>
         <button role="tab" id="tFood" aria-selected="${tab==="food"}" aria-controls="pFood">Nutrition plan</button>
         <button role="tab" id="tShop" aria-selected="${tab==="shop"}" aria-controls="pShop">Grocery list</button>
+        <button role="tab" id="tPantry" aria-selected="${tab==="pantry"}" aria-controls="pPantry">My food</button>
       </div>
     </div>
     <div id="pTrain" role="tabpanel" ${tab==="train" ? "" : "hidden"}>
@@ -1405,16 +1588,18 @@ function render() {
     </div>
     <div id="pFood" role="tabpanel" ${tab==="food" ? "" : "hidden"}>${nutritionHTML(plan, phaseAgg, fuel)}</div>
     <div id="pShop" role="tabpanel" ${tab==="shop" ? "" : "hidden"}>${groceryHTML(plan)}</div>
+    <div id="pPantry" role="tabpanel" ${tab==="pantry" ? "" : "hidden"}>${pantryHTML(plan)}</div>
     <p class="disclaimer">Start/Line gives general training and nutrition guidance from common coaching and sports-nutrition ranges. It is not medical advice and doesn't know your medical history. See a doctor before starting if you have a health condition, injury, or are new to exercise, and stop and get checked if you feel chest pain, dizziness or sharp pain.</p>
   `;
   $("tTrain").onclick = () => setTab("train");
   $("tFood").onclick = () => setTab("food");
   $("tShop").onclick = () => setTab("shop");
-  wireGrocery(plan); wireMeals(plan);
+  $("tPantry").onclick = () => setTab("pantry");
+  wireGrocery(plan); wireMeals(plan); wirePantry(plan);
 }
 function setTab(t) {
   tab = t; try { localStorage.setItem(STORE + ".tab", t); } catch (e) {}
-  [["train","tTrain","pTrain"],["food","tFood","pFood"],["shop","tShop","pShop"]].forEach(([k, b, pn]) => { $(b).setAttribute("aria-selected", t === k); $(pn).hidden = t !== k; });
+  [["train","tTrain","pTrain"],["food","tFood","pFood"],["shop","tShop","pShop"],["pantry","tPantry","pPantry"]].forEach(([k, b, pn]) => { $(b).setAttribute("aria-selected", t === k); $(pn).hidden = t !== k; });
 }
 
 let curR = null, curAvail = null;
@@ -1652,6 +1837,7 @@ $("tyDelete").onclick = () => {
 
 function boot() {
 try { shopPeople = +localStorage.getItem(STORE + ".people") || 1; } catch (e) {}
+loadPantry();
 try { shopMode = localStorage.getItem(STORE + ".shopMode") === "budget" ? "budget" : "suggested"; } catch (e) {}
 try { shopBudget = Math.max(0, +localStorage.getItem(STORE + ".budget") || 0); } catch (e) {}
 try { shopSpan = clamp(+localStorage.getItem(STORE + ".span") || 1, 1, 4); } catch (e) {}
