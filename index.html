@@ -332,6 +332,7 @@ ul.meals li span { color: var(--muted); font-size: 12px; text-transform: upperca
     </form>
     <button type="button" class="btn link" id="aGuest">Continue without an account</button>
     <p class="auth-note" id="authNote">Accounts and plans are saved in this browser on this device. They don't sync to other devices, and a forgotten password can't be reset.</p>
+    <p class="auth-note"><a href="privacy.html">Privacy policy</a></p>
   </div>
 </div>
 
@@ -1589,7 +1590,7 @@ function render() {
     <div id="pFood" role="tabpanel" ${tab==="food" ? "" : "hidden"}>${nutritionHTML(plan, phaseAgg, fuel)}</div>
     <div id="pShop" role="tabpanel" ${tab==="shop" ? "" : "hidden"}>${groceryHTML(plan)}</div>
     <div id="pPantry" role="tabpanel" ${tab==="pantry" ? "" : "hidden"}>${pantryHTML(plan)}</div>
-    <p class="disclaimer">Start/Line gives general training and nutrition guidance from common coaching and sports-nutrition ranges. It is not medical advice and doesn't know your medical history. See a doctor before starting if you have a health condition, injury, or are new to exercise, and stop and get checked if you feel chest pain, dizziness or sharp pain.</p>
+    <p class="disclaimer">Start/Line gives general training and nutrition guidance from common coaching and sports-nutrition ranges. It is not medical advice and doesn't know your medical history. See a doctor before starting if you have a health condition, injury, or are new to exercise, and stop and get checked if you feel chest pain, dizziness or sharp pain. <a href="privacy.html">Privacy policy</a></p>
   `;
   $("tTrain").onclick = () => setTab("train");
   $("tFood").onclick = () => setTab("food");
@@ -1870,6 +1871,23 @@ const ls = {
   set(k, v, store = localStorage) { try { store.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
   del(k) { try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch (e) {} },
 };
+// Delete account: the first tap arms the button, a second tap within 5 seconds deletes.
+function deleteButton(onDelete) {
+  const b = $("delAcct");
+  let armed = null;
+  b.onclick = async () => {
+    if (!armed) {
+      b.textContent = "Tap again to delete everything"; b.classList.add("danger");
+      armed = setTimeout(() => { armed = null; b.textContent = "Delete account"; b.classList.remove("danger"); }, 5000);
+      return;
+    }
+    clearTimeout(armed); b.disabled = true; b.textContent = "Deleting…";
+    try { await onDelete(); } catch (e) { b.disabled = false; b.textContent = "Couldn't delete. Try again"; armed = null; b.classList.remove("danger"); }
+  };
+}
+function clearStore(prefix) {
+  try { Object.keys(localStorage).filter(k => k === prefix || k.startsWith(prefix + ".")).forEach(k => localStorage.removeItem(k)); } catch (e) {}
+}
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
 async function hashPw(pw, saltHex) {
   const salt = new Uint8Array(saltHex.match(/../g).map(h => parseInt(h, 16)));
@@ -1888,9 +1906,14 @@ function setAuthMode(m) {
 function enterApp(user) {
   STORE = user ? `startline.u.${user.id}` : "startline.v1";
   $("who").innerHTML = user
-    ? `<span>Signed in as <b>${esc(user.name)}</b></span><button type="button" class="btn small" id="signOut">Sign out</button>`
+    ? `<span>Signed in as <b>${esc(user.name)}</b></span><button type="button" class="btn small" id="signOut">Sign out</button><button type="button" class="btn small" id="delAcct">Delete account</button>`
     : `<span>Using Start/Line as a guest</span><button type="button" class="btn small" id="signOut">Sign in</button>`;
   $("signOut").onclick = () => { ls.del(SESSION); location.reload(); };
+  if (user) deleteButton(async () => {
+    const users = ls.get(USERS) || {};
+    Object.keys(users).forEach(k => { if (users[k] && users[k].id === user.id) delete users[k]; });
+    ls.set(USERS, users); clearStore(STORE); ls.del(SESSION); location.reload();
+  });
   $("auth").hidden = true; $("app").hidden = false;
   boot();
 }
@@ -2000,8 +2023,15 @@ async function cloudEnter(user) {
   } catch (e) {}
   cloudUser = user;
   const name = (user.user_metadata && user.user_metadata.name) || user.email;
-  $("who").innerHTML = `<span>Signed in as <b>${esc(name)}</b></span><span class="syncstate hint" id="syncState">Saved online</span><button type="button" class="btn small" id="signOut">Sign out</button>`;
+  $("who").innerHTML = `<span>Signed in as <b>${esc(name)}</b></span><span class="syncstate hint" id="syncState">Saved online</span><button type="button" class="btn small" id="signOut">Sign out</button><button type="button" class="btn small" id="delAcct">Delete account</button>`;
   $("signOut").onclick = async () => { if (syncTimer) await pushNow(); await sb.auth.signOut(); location.reload(); };
+  // Deletes the sign-in and, through the foreign key, the saved plans (see delete_my_account in supabase/schema.sql).
+  deleteButton(async () => {
+    clearTimeout(syncTimer); syncTimer = null; cloudUser = null;
+    const { error } = await sb.rpc("delete_my_account");
+    if (error) throw error;
+    clearStore(STORE); await sb.auth.signOut(); location.reload();
+  });
   $("auth").hidden = true; $("app").hidden = false;
   boot();
   if (!row) pushNow();
