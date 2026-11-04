@@ -32,6 +32,23 @@ Without Supabase, everything you enter, including accounts, is saved only in you
 
 By default Supabase asks new users to confirm their email before signing in. You can turn that off under **Authentication > Providers > Email** if you prefer.
 
+## iOS app
+
+The `ios/` folder is an Xcode project that wraps the same `index.html` with [Capacitor](https://capacitorjs.com), so the iPhone app and the website share one codebase and the same Supabase accounts.
+
+You need a Mac with Xcode (free from the App Store) and Node.js. Then, in this folder:
+
+```sh
+npm install
+npm run ios
+```
+
+`npm run ios` copies `index.html` into the app, syncs it, and opens the project in Xcode. In Xcode, pick an iPhone simulator at the top and press Run. Run `npm run ios` again after any change to `index.html`.
+
+To run on your own iPhone, open **App > Signing & Capabilities** in Xcode, choose your Apple ID as the **Team**, plug in the phone and pick it as the run target. A free Apple ID works for testing on your own phone. Publishing to the App Store or TestFlight needs an Apple Developer account ($99 a year).
+
+Email confirmation and password-reset links from the app open the live site (`https://wilrich18.github.io/startline/`), so keep that URL in Supabase's **Redirect URLs**.
+
 ## Not medical advice
 
 Start/Line gives general guidance based on common coaching and sports-nutrition ranges. Check with a doctor before starting a new training plan, especially if you have a health condition or injury.
