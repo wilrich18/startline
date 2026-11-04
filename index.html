@@ -1961,7 +1961,9 @@ function friendly(e) {
   if (/fetch|network/i.test(m)) return "Can't reach the account service. Check your connection and try again.";
   return m;
 }
-const redirectUrl = () => location.origin + location.pathname;
+// In the iOS app the page is served from capacitor://localhost, which email links can't open, so links go to the live site instead.
+const LIVE_SITE = "https://wilrich18.github.io/startline/";
+const redirectUrl = () => /^https?:$/.test(location.protocol) ? location.origin + location.pathname : LIVE_SITE;
 function collectData() {
   const out = {};
   try { Object.keys(localStorage).filter(k => k === STORE || k.startsWith(STORE + ".")).forEach(k => out[k.slice(STORE.length)] = localStorage.getItem(k)); } catch (e) {}

@@ -1,0 +1,6 @@
+{
+  "appId": "io.github.wilrich18.startline",
+  "appName": "Start/Line",
+  "webDir": "www",
+  "ios": { "contentInset": "never" }
+}
